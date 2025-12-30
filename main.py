@@ -349,11 +349,9 @@ async def web_interface():
                             <label>Тип доверенности *</label>
                             <select id="poa_type" required>
                                 <option value="">Выберите тип</option>
-                                <option value="Генеральная">Генеральная</option>
-                                <option value="Разовая">Разовая</option>
-                                <option value="Специальная">Специальная</option>
-                                <option value="На получение ТМЦ">На получение ТМЦ</option>
-                                <option value="На представление интересов">На представление интересов</option>
+                                <option value="m4d">Генеральная</option>
+                                <option value="Росстат">Разовая</option>
+                                <option value="Таможня">Специальная</option>                           
                             </select>
                         </div>
                         
