@@ -359,14 +359,6 @@ async def web_interface():
                             <input type="date" id="end_date" required>
                         </div>
                         
-                        <div class="form-group">
-                            <label>Telegram Chat ID (для уведомлений)</label>
-                            <input type="text" id="telegram_chat_id" placeholder="123456789">
-                            <small style="color: #6c757d; display: block; margin-top: 5px;">
-                                Получите ID через @getmyid_bot
-                            </small>
-                        </div>
-                        
                         <button type="submit" class="btn"> Сохранить доверенность</button>
                     </form>
                 </div>
