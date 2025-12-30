@@ -1,0 +1,703 @@
+"""
+Агрегатор доверенностей с уведомлениями в Telegram
+Всё в одном файле для простого развертывания на Railway
+"""
+
+import os
+import sqlite3
+import logging
+import asyncio
+from datetime import datetime, date, timedelta
+from typing import List, Optional, Dict, Any
+
+from fastapi import FastAPI, HTTPException, Form, Query
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
+from pydantic import BaseModel
+from telegram import Bot
+from telegram.error import TelegramError
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+
+# ==================== НАСТРОЙКИ ====================
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+if not TELEGRAM_BOT_TOKEN:
+    print("⚠️  ВНИМАНИЕ: TELEGRAM_BOT_TOKEN не установлен!")
+    print("Создайте бота через @BotFather и установите токен как переменную окружения")
+
+DATABASE_FILE = "poa.db"
+NOTIFICATION_DAYS = [7, 3, 1]  # За сколько дней уведомлять
+CHECK_INTERVAL_HOURS = 6  # Проверять каждые 6 часов
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# ==================== МОДЕЛИ ДАННЫХ ====================
+class PowerOfAttorneyCreate(BaseModel):
+    full_name: str
+    poa_type: str
+    end_date: date
+    telegram_chat_id: Optional[str] = None
+
+class PowerOfAttorney(BaseModel):
+    id: int
+    full_name: str
+    poa_type: str
+    start_date: date
+    end_date: date
+    telegram_chat_id: Optional[str]
+    notification_sent: bool
+    days_remaining: int
+
+    class Config:
+        from_attributes = True
+
+# ==================== БАЗА ДАННЫХ ====================
+def init_database():
+    """Инициализация базы данных SQLite"""
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    
+    # Таблица доверенностей
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS powers_of_attorney (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            full_name TEXT NOT NULL,
+            poa_type TEXT NOT NULL,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            telegram_chat_id TEXT,
+            notification_sent BOOLEAN DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Индексы для быстрого поиска
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_end_date ON powers_of_attorney(end_date)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_notification ON powers_of_attorney(notification_sent)')
+    
+    # Таблица логов (опционально)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message TEXT,
+            level TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    conn.commit()
+    conn.close()
+    logger.info("База данных инициализирована")
+
+def add_power_of_attorney(
+    full_name: str,
+    poa_type: str,
+    end_date: date,
+    telegram_chat_id: Optional[str] = None
+) -> int:
+    """Добавление новой доверенности"""
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        INSERT INTO powers_of_attorney 
+        (full_name, poa_type, start_date, end_date, telegram_chat_id)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (full_name, poa_type, date.today().isoformat(), 
+          end_date.isoformat(), telegram_chat_id))
+    
+    power_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    
+    logger.info(f"Добавлена доверенность ID {power_id} для {full_name}")
+    return power_id
+
+def get_all_powers() -> List[Dict[str, Any]]:
+    """Получение всех доверенностей"""
+    conn = sqlite3.connect(DATABASE_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT *, 
+               julianday(end_date) - julianday('now') as days_remaining
+        FROM powers_of_attorney 
+        ORDER BY end_date ASC
+    ''')
+    
+    powers = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return powers
+
+def get_expiring_powers(days: int) -> List[Dict[str, Any]]:
+    """Получение доверенностей, истекающих через указанное количество дней"""
+    conn = sqlite3.connect(DATABASE_FILE)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    target_date = (date.today() + timedelta(days=days)).isoformat()
+    
+    cursor.execute('''
+        SELECT * FROM powers_of_attorney 
+        WHERE end_date = ? AND notification_sent = 0
+    ''', (target_date,))
+    
+    powers = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return powers
+
+def mark_notification_sent(power_id: int):
+    """Пометить, что уведомление отправлено"""
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        UPDATE powers_of_attorney 
+        SET notification_sent = 1 
+        WHERE id = ?
+    ''', (power_id,))
+    
+    conn.commit()
+    conn.close()
+
+def delete_power(power_id: int) -> bool:
+    """Удаление доверенности"""
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+    
+    cursor.execute('DELETE FROM powers_of_attorney WHERE id = ?', (power_id,))
+    deleted = cursor.rowcount > 0
+    
+    conn.commit()
+    conn.close()
+    
+    if deleted:
+        logger.info(f"Удалена доверенность ID {power_id}")
+    
+    return deleted
+
+# ==================== TELEGRAM БОТ ====================
+class TelegramNotifier:
+    """Класс для работы с Telegram"""
+    
+    def __init__(self, token: str):
+        self.bot = Bot(token=token) if token else None
+        
+    async def send_notification(
+        self, 
+        chat_id: str, 
+        full_name: str, 
+        poa_type: str, 
+        end_date: date, 
+        days_left: int
+    ) -> bool:
+        """Отправка уведомления в Telegram"""
+        if not self.bot:
+            logger.warning("Telegram бот не инициализирован (отсутствует токен)")
+            return False
+            
+        try:
+            message = (
+                f"🔔 **Уведомление о доверенности**\n\n"
+                f"**ФИО:** {full_name}\n"
+                f"**Тип доверенности:** {poa_type}\n"
+                f"**Дата окончания:** {end_date.strftime('%d.%m.%Y')}\n"
+                f"**Осталось дней:** {days_left}\n\n"
+                f"_Не забудьте продлить доверенность!_"
+            )
+            
+            await self.bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode="Markdown"
+            )
+            
+            logger.info(f"Уведомление отправлено в Telegram chat_id: {chat_id}")
+            return True
+            
+        except TelegramError as e:
+            logger.error(f"Ошибка отправки в Telegram: {e}")
+            return False
+
+# ==================== ПЛАНИРОВЩИК ====================
+class NotificationScheduler:
+    """Планировщик проверки сроков"""
+    
+    def __init__(self, notifier: TelegramNotifier):
+        self.notifier = notifier
+        self.scheduler = AsyncIOScheduler()
+        
+    async def check_and_notify(self):
+        """Проверка истекающих доверенностей и отправка уведомлений"""
+        if not self.notifier.bot:
+            logger.warning("Telegram бот не доступен, пропускаем проверку")
+            return
+            
+        logger.info("Запуск проверки доверенностей...")
+        
+        for days in NOTIFICATION_DAYS:
+            expiring_powers = get_expiring_powers(days)
+            
+            for power in expiring_powers:
+                if power['telegram_chat_id']:
+                    success = await self.notifier.send_notification(
+                        chat_id=power['telegram_chat_id'],
+                        full_name=power['full_name'],
+                        poa_type=power['poa_type'],
+                        end_date=datetime.strptime(power['end_date'], '%Y-%m-%d').date(),
+                        days_left=days
+                    )
+                    
+                    if success:
+                        mark_notification_sent(power['id'])
+                        
+            logger.info(f"Проверено на {days} дней вперёд. Найдено: {len(expiring_powers)}")
+    
+    def start(self):
+        """Запуск планировщика"""
+        # Проверяем каждый день в 10:00
+        self.scheduler.add_job(
+            self.check_and_notify,
+            CronTrigger(hour=10, minute=0),
+            id="daily_check",
+            replace_existing=True
+        )
+        
+        # А также каждые 6 часов для отладки
+        self.scheduler.add_job(
+            self.check_and_notify,
+            'interval',
+            hours=CHECK_INTERVAL_HOURS,
+            id="interval_check",
+            replace_existing=True
+        )
+        
+        self.scheduler.start()
+        logger.info(f"Планировщик запущен. Проверка каждый день в 10:00 и каждые {CHECK_INTERVAL_HOURS} часов")
+
+# ==================== FASTAPI ПРИЛОЖЕНИЕ ====================
+# Глобальные объекты
+telegram_notifier = TelegramNotifier(TELEGRAM_BOT_TOKEN)
+scheduler = NotificationScheduler(telegram_notifier)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Управление жизненным циклом приложения"""
+    # Запуск
+    logger.info("Запуск приложения...")
+    init_database()
+    scheduler.start()
+    
+    # Немедленная проверка при запуске
+    await scheduler.check_and_notify()
+    
+    yield
+    
+    # Остановка
+    logger.info("Остановка приложения...")
+    scheduler.scheduler.shutdown()
+
+app = FastAPI(
+    title="Трекер доверенностей",
+    description="Простой агрегатор доверенностей с уведомлениями в Telegram",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# ==================== HTML ИНТЕРФЕЙС ====================
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Трекер доверенностей</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        function updateCountdown() {
+            document.querySelectorAll('.countdown').forEach(el => {
+                const endDate = new Date(el.dataset.endDate);
+                const today = new Date();
+                const diffTime = endDate - today;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                let badgeClass = 'bg-green-100 text-green-800';
+                if (diffDays <= 3) badgeClass = 'bg-red-100 text-red-800';
+                else if (diffDays <= 7) badgeClass = 'bg-yellow-100 text-yellow-800';
+                
+                el.innerHTML = `
+                    <span class="px-2 py-1 rounded-full text-xs font-medium ${badgeClass}">
+                        ${diffDays} дней
+                    </span>
+                `;
+            });
+        }
+        
+        async function deletePower(id) {
+            if (confirm('Удалить доверенность?')) {
+                const response = await fetch(`/api/powers/${id}`, {
+                    method: 'DELETE'
+                });
+                if (response.ok) {
+                    location.reload();
+                }
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            updateCountdown();
+            setInterval(updateCountdown, 60000); // Обновлять каждую минуту
+            
+            // Форма добавления
+            document.getElementById('addForm').addEventListener('submit', async function(e) {
+                e.preventDefault();
+                
+                const formData = new FormData(this);
+                const data = {
+                    full_name: formData.get('full_name'),
+                    poa_type: formData.get('poa_type'),
+                    end_date: formData.get('end_date'),
+                    telegram_chat_id: formData.get('telegram_chat_id') || null
+                };
+                
+                const response = await fetch('/api/powers/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                if (response.ok) {
+                    alert('Доверенность добавлена!');
+                    location.reload();
+                } else {
+                    alert('Ошибка при добавлении');
+                }
+            });
+        });
+    </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Заголовок -->
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">
+                <i class="fas fa-file-contract mr-2"></i>Трекер доверенностей
+            </h1>
+            <p class="text-gray-600">Отслеживание сроков доверенностей с уведомлениями в Telegram</p>
+        </div>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Левая колонка: Форма добавления -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">
+                        <i class="fas fa-plus-circle mr-2"></i>Добавить доверенность
+                    </h2>
+                    <form id="addForm">
+                        <div class="mb-4">
+                            <label class="block text-gray-700 text-sm font-medium mb-2">ФИО *</label>
+                            <input type="text" name="full_name" required
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="block text-gray-700 text-sm font-medium mb-2">Тип доверенности *</label>
+                            <select name="poa_type" required
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="">Выберите тип</option>
+                                <option value="Генеральная">Генеральная</option>
+                                <option value="Разовая">Разовая</option>
+                                <option value="Специальная">Специальная</option>
+                                <option value="На получение ТМЦ">На получение ТМЦ</option>
+                                <option value="На представление интересов">На представление интересов</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="block text-gray-700 text-sm font-medium mb-2">Дата окончания *</label>
+                            <input type="date" name="end_date" required
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                   min="{{ today }}">
+                        </div>
+                        
+                        <div class="mb-6">
+                            <label class="block text-gray-700 text-sm font-medium mb-2">
+                                Telegram Chat ID (для уведомлений)
+                            </label>
+                            <input type="text" name="telegram_chat_id"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                   placeholder="Пример: 123456789">
+                            <p class="text-xs text-gray-500 mt-1">
+                                Получите ID через бота @getmyid_bot
+                            </p>
+                        </div>
+                        
+                        <button type="submit"
+                                class="w-full bg-blue-600 text-white font-medium py-2.5 px-4 rounded-md hover:bg-blue-700 transition duration-200">
+                            <i class="fas fa-save mr-2"></i>Сохранить доверенность
+                        </button>
+                    </form>
+                </div>
+                
+                <!-- Информация о боте -->
+                <div class="bg-blue-50 rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold text-blue-800 mb-3">
+                        <i class="fas fa-robot mr-2"></i>Настройка уведомлений
+                    </h3>
+                    <p class="text-blue-700 mb-4">
+                        Уведомления будут приходить за 7, 3 и 1 день до окончания срока.
+                    </p>
+                    <div class="bg-white rounded p-3 mb-4">
+                        <p class="text-sm font-medium text-gray-700 mb-1">Текущий статус бота:</p>
+                        {% if bot_available %}
+                        <span class="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
+                            <i class="fas fa-check-circle mr-1"></i>Активен
+                        </span>
+                        {% else %}
+                        <span class="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">
+                            <i class="fas fa-exclamation-triangle mr-1"></i>Требуется настройка
+                        </span>
+                        {% endif %}
+                    </div>
+                    <a href="https://t.me/getmyid_bot" target="_blank"
+                       class="block w-full text-center bg-blue-100 text-blue-700 font-medium py-2 px-4 rounded-md hover:bg-blue-200 transition duration-200">
+                        <i class="fab fa-telegram mr-2"></i>Получить Telegram ID
+                    </a>
+                </div>
+            </div>
+            
+            <!-- Правая колонка: Список доверенностей -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                    <div class="px-6 py-4 border-b border-gray-200">
+                        <h2 class="text-xl font-semibold text-gray-800">
+                            <i class="fas fa-list mr-2"></i>Список доверенностей
+                        </h2>
+                        <p class="text-gray-600 text-sm mt-1">
+                            Всего: {{ total_count }} | Активных: {{ active_count }} | Скоро истекают: {{ expiring_count }}
+                        </p>
+                    </div>
+                    
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФИО</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Тип</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Начало</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Окончание</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Осталось</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                {% for power in powers %}
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="font-medium text-gray-900">{{ power.full_name }}</div>
+                                        {% if power.telegram_chat_id %}
+                                        <div class="text-xs text-gray-500">
+                                            <i class="fab fa-telegram mr-1"></i>Уведомления включены
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs">
+                                            {{ power.poa_type }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-gray-700">{{ power.start_date }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap font-medium">{{ power.end_date }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="countdown" data-end-date="{{ power.end_date }}"></div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <button onclick="deletePower({{ power.id }})"
+                                                class="text-red-600 hover:text-red-900 text-sm font-medium">
+                                            <i class="fas fa-trash mr-1"></i>Удалить
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        
+                        {% if not powers %}
+                        <div class="text-center py-12">
+                            <i class="fas fa-inbox text-gray-300 text-4xl mb-4"></i>
+                            <p class="text-gray-500">Нет добавленных доверенностей</p>
+                            <p class="text-gray-400 text-sm mt-2">Добавьте первую доверенность с помощью формы слева</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <!-- Статистика -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="flex items-center">
+                            <div class="bg-blue-100 p-3 rounded-lg mr-4">
+                                <i class="fas fa-file-contract text-blue-600 text-xl"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-500">Всего доверенностей</p>
+                                <p class="text-2xl font-bold text-gray-800">{{ total_count }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="flex items-center">
+                            <div class="bg-green-100 p-3 rounded-lg mr-4">
+                                <i class="fas fa-bell text-green-600 text-xl"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-500">С уведомлениями</p>
+                                <p class="text-2xl font-bold text-gray-800">{{ with_notifications }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white rounded-lg shadow-md p-4">
+                        <div class="flex items-center">
+                            <div class="bg-yellow-100 p-3 rounded-lg mr-4">
+                                <i class="fas fa-clock text-yellow-600 text-xl"></i>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-500">Истекают в этом месяце</p>
+                                <p class="text-2xl font-bold text-gray-800">{{ expiring_this_month }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Футер -->
+        <div class="mt-8 pt-6 border-t border-gray-200 text-center text-gray-500 text-sm">
+            <p>Трекер доверенностей • Развернуто на Railway • 
+                <a href="/api/docs" class="text-blue-600 hover:text-blue-800">API Документация</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+# ==================== API ENDPOINTS ====================
+@app.get("/", response_class=HTMLResponse)
+async def read_root():
+    """Главная страница с веб-интерфейсом"""
+    powers = get_all_powers()
+    
+    # Статистика
+    today = date.today()
+    end_of_month = date(today.year, today.month, 1) + timedelta(days=32)
+    end_of_month = date(end_of_month.year, end_of_month.month, 1) - timedelta(days=1)
+    
+    expiring_this_month = sum(1 for p in powers 
+                             if today <= datetime.strptime(p['end_date'], '%Y-%m-%d').date() <= end_of_month)
+    
+    context = {
+        "powers": powers,
+        "today": today.isoformat(),
+        "total_count": len(powers),
+        "active_count": sum(1 for p in powers if datetime.strptime(p['end_date'], '%Y-%m-%d').date() >= today),
+        "expiring_count": sum(1 for p in powers if 0 <= p['days_remaining'] <= 7),
+        "with_notifications": sum(1 for p in powers if p['telegram_chat_id']),
+        "expiring_this_month": expiring_this_month,
+        "bot_available": bool(TELEGRAM_BOT_TOKEN)
+    }
+    
+    import jinja2
+    template = jinja2.Template(HTML_TEMPLATE)
+    return template.render(**context)
+
+@app.post("/api/powers/", response_model=Dict[str, Any])
+async def create_power(power: PowerOfAttorneyCreate):
+    """Добавление новой доверенности"""
+    power_id = add_power_of_attorney(
+        full_name=power.full_name,
+        poa_type=power.poa_type,
+        end_date=power.end_date,
+        telegram_chat_id=power.telegram_chat_id
+    )
+    
+    return {
+        "id": power_id,
+        "message": "Доверенность успешно добавлена",
+        "full_name": power.full_name,
+        "end_date": power.end_date.isoformat()
+    }
+
+@app.get("/api/powers/", response_model=List[Dict[str, Any]])
+async def read_powers():
+    """Получение всех доверенностей"""
+    return get_all_powers()
+
+@app.get("/api/powers/expiring/")
+async def get_expiring(
+    days: int = Query(7, description="Количество дней для проверки")
+):
+    """Получение доверенностей, истекающих через указанное количество дней"""
+    return get_expiring_powers(days)
+
+@app.delete("/api/powers/{power_id}")
+async def delete_power_by_id(power_id: int):
+    """Удаление доверенности по ID"""
+    success = delete_power(power_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Доверенность не найдена")
+    return {"message": "Доверенность удалена", "id": power_id}
+
+@app.post("/api/check-now/")
+async def check_now():
+    """Ручной запуск проверки уведомлений"""
+    await scheduler.check_and_notify()
+    return {"message": "Проверка завершена"}
+
+@app.get("/api/health/")
+async def health_check():
+    """Проверка здоровья приложения"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "database": os.path.exists(DATABASE_FILE),
+        "telegram_bot": bool(TELEGRAM_BOT_TOKEN),
+        "total_powers": len(get_all_powers())
+    }
+
+# ==================== ЗАПУСК ====================
+if __name__ == "__main__":
+    import uvicorn
+    
+    print("=" * 50)
+    print("🚀 Трекер доверенностей")
+    print("=" * 50)
+    print(f"Дата запуска: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"База данных: {DATABASE_FILE}")
+    print(f"Telegram бот: {'Настроен' if TELEGRAM_BOT_TOKEN else 'Не настроен'}")
+    print(f"Уведомления за дней: {NOTIFICATION_DAYS}")
+    print("=" * 50)
+    print("Доступные URL:")
+    print(f"  • Веб-интерфейс: http://localhost:8000")
+    print(f"  • API документация: http://localhost:8000/api/docs")
+    print(f"  • Проверка здоровья: http://localhost:8000/api/health")
+    print("=" * 50)
+    
+    uvicorn.run(
+        "poa_tracker:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 8000)),
+        reload=True
+    )
