@@ -86,7 +86,7 @@ async def create_power(
     full_name: str,
     poa_type: str,
     end_date: str,
-    telegram_chat_id: Optional[str] = None
+      telegram_chat_id: Optional[str] = "-5140897831"
 ):
     """Создать новую доверенность"""
     try:
@@ -106,7 +106,7 @@ async def create_power(
         poa_type,
         date.today().isoformat(),
         end_date_obj.isoformat(),
-        telegram_chat_id
+        "-5140897831"
     ))
     
     power_id = cursor.lastrowid
