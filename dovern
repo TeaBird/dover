@@ -677,8 +677,9 @@ async def health_check():
         "total_powers": len(get_all_powers())
     }
 
-# ==================== ЗАПУСК ====================
-if __name__ == "__main__":
+# ==================== ЗАПУСК ДЛЯ RAILWAY ====================
+def run_server():
+    """Запуск сервера для Railway"""
     import uvicorn
     
     print("=" * 50)
@@ -690,14 +691,24 @@ if __name__ == "__main__":
     print(f"Уведомления за дней: {NOTIFICATION_DAYS}")
     print("=" * 50)
     print("Доступные URL:")
-    print(f"  • Веб-интерфейс: http://localhost:8000")
-    print(f"  • API документация: http://localhost:8000/api/docs")
-    print(f"  • Проверка здоровья: http://localhost:8000/api/health")
+    print(f"  • Веб-интерфейс: https://{os.getenv('RAILWAY_STATIC_URL', 'localhost:8000')}")
+    print(f"  • API документация: https://{os.getenv('RAILWAY_STATIC_URL', 'localhost:8000')}/api/docs")
+    print(f"  • Проверка здоровья: https://{os.getenv('RAILWAY_STATIC_URL', 'localhost:8000')}/api/health")
     print("=" * 50)
     
+    # ВАЖНО: Railway передает порт через переменную окружения PORT
+    port = int(os.getenv("PORT", 8000))
+    host = "0.0.0.0"  # Важно слушать все интерфейсы
+    
+    print(f"Запуск сервера на {host}:{port}")
+    
     uvicorn.run(
-        "poa_tracker:app",
-        host="0.0.0.0",
-        port=int(os.getenv("PORT", 8000)),
-        reload=True
+        app,
+        host=host,
+        port=port,
+        # Для Railway лучше не использовать reload
+        reload=False
     )
+
+if __name__ == "__main__":
+    run_server()
