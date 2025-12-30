@@ -365,7 +365,7 @@ async def web_interface():
                 
                 <!-- Статистика -->
                 <div class="card">
-                    <h3>📊 Статистика</h3>
+                    <h3> Статистика</h3>
                     <div class="stats" id="stats">
                         <div class="stat-card">
                             <div class="stat-value" id="totalCount">0</div>
