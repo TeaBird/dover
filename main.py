@@ -336,7 +336,7 @@ async def web_interface():
             <!-- Левая колонка: Форма -->
             <div>
                 <div class="card">
-                    <h2 style="margin-top: 0;">➕ Добавить доверенность</h2>
+                    <h2 style="margin-top: 0;">Добавить доверенность</h2>
                     <div id="alert" class="alert"></div>
                     
                     <form id="addForm">
