@@ -1,4 +1,3 @@
-# main.py - Единственный файл приложения
 import os
 import sqlite3
 import logging
