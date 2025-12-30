@@ -117,7 +117,7 @@ async def create_power(
     conn.commit()
     conn.close()
     
-    logger.info(f"Создана доверенность ID {power_id} для {full_name}")
+    logger.info(f"Созданаа доверенность ID {power_id} для {full_name}")
     
     return {
         "id": power_id,
