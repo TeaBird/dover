@@ -367,7 +367,7 @@ async def web_interface():
                             </small>
                         </div>
                         
-                        <button type="submit" class="btn">✅ Сохранить доверенность</button>
+                        <button type="submit" class="btn"> Сохранить доверенность</button>
                     </form>
                 </div>
                 
@@ -393,9 +393,9 @@ async def web_interface():
                 <!-- Ссылки -->
                 <div class="card">
                     <h3>🔗 Быстрые ссылки</h3>
-                    <p><a href="/docs" target="_blank">📚 API Документация</a></p>
-                    <p><a href="https://t.me/getmyid_bot" target="_blank">🤖 Получить Telegram ID</a></p>
-                    <p><a href="https://t.me/BotFather" target="_blank">👨‍💼 Создать Telegram бота</a></p>
+                    <p><a href="/docs" target="_blank"> API Документация</a></p>
+                    <p><a href="https://t.me/getmyid_bot" target="_blank"> Получить Telegram ID</a></p>
+                    <p><a href="https://t.me/BotFather" target="_blank"> Создать Telegram бота</a></p>
                 </div>
             </div>
             
@@ -403,9 +403,9 @@ async def web_interface():
             <div>
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h2 style="margin: 0;">📋 Список доверенностей</h2>
+                        <h2 style="margin: 0;"> Список доверенностей</h2>
                         <button onclick="loadPowers()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">
-                            🔄 Обновить
+                             Обновить
                         </button>
                     </div>
                     
@@ -476,14 +476,14 @@ async def web_interface():
                             <tr>
                                 <td>
                                     <strong>\${power.full_name}</strong>
-                                    \${power.telegram_chat_id ? '<br><small style="color: #28a745;">🔔 Уведомления</small>' : ''}
+                                    \${power.telegram_chat_id ? '<br><small style="color: #28a745;"> Уведомления</small>' : ''}
                                 </td>
                                 <td><span class="badge badge-info">\${power.poa_type}</span></td>
                                 <td>\${power.start_date}</td>
                                 <td>\${power.end_date}</td>
                                 <td><span class="\${badgeClass}">\${badgeText}</span></td>
                                 <td>
-                                    <button onclick="deletePower(\${power.id})" class="delete-btn">🗑️ Удалить</button>
+                                    <button onclick="deletePower(\${power.id})" class="delete-btn"> Удалить</button>
                                 </td>
                             </tr>
                         \`;
@@ -495,7 +495,7 @@ async def web_interface():
                     updateStats();
                     
                 } catch (error) {
-                    document.getElementById('powersList').innerHTML = '<p>❌ Ошибка загрузки данных</p>';
+                    document.getElementById('powersList').innerHTML = '<p> Ошибка загрузки данных</p>';
                     console.error('Error:', error);
                 }
             }
@@ -528,8 +528,8 @@ async def web_interface():
                     const status = await response.json();
                     
                     const botStatus = status.telegram_bot === 'configured' 
-                        ? '<span style="color: #28a745;">✅ Настроен</span>'
-                        : '<span style="color: #dc3545;">❌ Не настроен</span>';
+                        ? '<span style="color: #28a745;"> Настроен</span>'
+                        : '<span style="color: #dc3545;"> Не настроен</span>';
                     
                     document.getElementById('status').innerHTML = \`
                         <p><strong>Статус:</strong> <span style="color: #28a745;">● \${status.status}</span></p>
@@ -539,7 +539,7 @@ async def web_interface():
                         <p><strong>Время:</strong> \${new Date(status.timestamp).toLocaleString()}</p>
                     \`;
                 } catch (error) {
-                    document.getElementById('status').innerHTML = '<p>❌ Ошибка проверки статуса</p>';
+                    document.getElementById('status').innerHTML = '<p> Ошибка проверки статуса</p>';
                 }
             }
             
@@ -553,13 +553,13 @@ async def web_interface():
                     });
                     
                     if (response.ok) {
-                        showAlert('✅ Доверенность удалена!');
+                        showAlert(' Доверенность удалена!');
                         loadPowers();
                     } else {
-                        showAlert('❌ Ошибка при удалении', 'error');
+                        showAlert(' Ошибка при удалении', 'error');
                     }
                 } catch (error) {
-                    showAlert('❌ Ошибка сети', 'error');
+                    showAlert(' Ошибка сети', 'error');
                 }
             }
             
@@ -576,7 +576,7 @@ async def web_interface():
                 
                 // Валидация
                 if (!formData.full_name || !formData.poa_type || !formData.end_date) {
-                    showAlert('❌ Заполните все обязательные поля', 'error');
+                    showAlert(' Заполните все обязательные поля', 'error');
                     return;
                 }
                 
@@ -596,15 +596,15 @@ async def web_interface():
                     
                     if (response.ok) {
                         const result = await response.json();
-                        showAlert(\`✅ Доверенность "\${formData.full_name}" добавлена!\`);
+                        showAlert(\` Доверенность "\${formData.full_name}" добавлена!\`);
                         document.getElementById('addForm').reset();
                         loadPowers();
                     } else {
                         const error = await response.json();
-                        showAlert(\`❌ Ошибка: \${error.detail || 'Неизвестная ошибка'}\`, 'error');
+                        showAlert(\` Ошибка: \${error.detail || 'Неизвестная ошибка'}\`, 'error');
                     }
                 } catch (error) {
-                    showAlert('❌ Ошибка сети', 'error');
+                    showAlert(' Ошибка сети', 'error');
                 }
             });
             
@@ -635,11 +635,11 @@ if __name__ == "__main__":
     HOST = "0.0.0.0"
     
     print("=" * 60)
-    print("🚀 Power of Attorney Tracker")
+    print(" Power of Attorney Tracker")
     print("=" * 60)
     print(f"Сервер запущен на: {HOST}:{PORT}")
     print(f"База данных: {DATABASE_FILE}")
-    print(f"Telegram бот: {'✅ Настроен' if TELEGRAM_BOT_TOKEN else '❌ Не настроен'}")
+    print(f"Telegram бот: {' Настроен' if TELEGRAM_BOT_TOKEN else ' Не настроен'}")
     print("=" * 60)
     print("Доступные эндпоинты:")
     print(f"  • Веб-интерфейс: http://localhost:{PORT}/ui")
