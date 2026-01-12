@@ -229,41 +229,96 @@ async def get_powers():
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
+        # Запрос с правильным вычислением days_remaining
         cursor.execute('''
-            SELECT *, 
-                   (end_date - CURRENT_DATE) as days_remaining
+            SELECT 
+                id,
+                full_name,
+                poa_type,
+                start_date,
+                end_date,
+                telegram_chat_id,
+                notification_sent,
+                created_at,
+                (end_date - CURRENT_DATE) as days_remaining
             FROM powers_of_attorney 
             ORDER BY end_date ASC
         ''')
         
         powers = cursor.fetchall()
         
-        # Конвертируем в список словарей
+        # Конвертируем результат
         result = []
         for power in powers:
             power_dict = dict(power)
-            # Преобразуем типы
-            if power_dict.get('start_date'):
-                power_dict['start_date'] = power_dict['start_date'].isoformat()
-            if power_dict.get('end_date'):
-                power_dict['end_date'] = power_dict['end_date'].isoformat()
-            if power_dict.get('created_at'):
-                power_dict['created_at'] = power_dict['created_at'].isoformat()
             
-            # Преобразуем days_remaining в int
-            if power_dict.get('days_remaining'):
-                power_dict['days_remaining'] = power_dict['days_remaining'].days
+            # Преобразуем даты в строки
+            if power_dict.get('start_date'):
+                if isinstance(power_dict['start_date'], date):
+                    power_dict['start_date'] = power_dict['start_date'].isoformat()
+                elif isinstance(power_dict['start_date'], datetime):
+                    power_dict['start_date'] = power_dict['start_date'].date().isoformat()
+            
+            if power_dict.get('end_date'):
+                if isinstance(power_dict['end_date'], date):
+                    power_dict['end_date'] = power_dict['end_date'].isoformat()
+                elif isinstance(power_dict['end_date'], datetime):
+                    power_dict['end_date'] = power_dict['end_date'].date().isoformat()
+            
+            if power_dict.get('created_at'):
+                if isinstance(power_dict['created_at'], datetime):
+                    power_dict['created_at'] = power_dict['created_at'].isoformat()
+            
+            # Обрабатываем days_remaining
+            # В PostgreSQL (end_date - CURRENT_DATE) возвращает интервал
+            # Нужно извлечь количество дней
+            if power_dict.get('days_remaining') is not None:
+                days_rem = power_dict['days_remaining']
+                if hasattr(days_rem, 'days'):
+                    # Это timedelta объект
+                    power_dict['days_remaining'] = days_rem.days
+                elif isinstance(days_rem, int):
+                    # Уже число
+                    power_dict['days_remaining'] = days_rem
+                else:
+                    # Другой тип, преобразуем
+                    try:
+                        power_dict['days_remaining'] = int(days_rem)
+                    except:
+                        power_dict['days_remaining'] = 0
+            else:
+                power_dict['days_remaining'] = 0
             
             result.append(power_dict)
         
         cursor.close()
         conn.close()
         
+        logger.info(f"Получено {len(result)} доверенностей")
         return result
         
     except Exception as e:
         logger.error(f"Ошибка получения доверенностей: {e}")
-        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
+        import traceback
+        error_details = traceback.format_exc()
+        
+        # Для отладки: что возвращает запрос
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM powers_of_attorney LIMIT 1")
+            sample = cursor.fetchone()
+            cursor.close()
+            conn.close()
+        except:
+            sample = None
+        
+        return {
+            "error": True,
+            "message": str(e),
+            "sample_row": str(sample) if sample else "нет данных",
+            "traceback": error_details
+        }
 
 @app.delete("/api/powers/{power_id}")
 async def delete_power(power_id: int):
