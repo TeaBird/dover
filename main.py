@@ -971,7 +971,7 @@ async def test_notification():
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
-            "text": "✅ ТЕСТ: Система работает!\nВремя: " + datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+            "text": " ТЕСТ: Система работает!\nВремя: " + datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
             "parse_mode": "HTML"
         }
         
@@ -979,7 +979,7 @@ async def test_notification():
             response = await client.post(url, json=payload)
         
         if response.status_code == 200:
-            logger.info("✅ Тестовое уведомление отправлено через API")
+            logger.info(" Тестовое уведомление отправлено через API")
             return {
                 "status": "success",
                 "message": "Тестовое уведомление отправлено в Telegram",
