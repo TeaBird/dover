@@ -1050,6 +1050,37 @@ async def get_scheduler_status():
         "jobs": jobs,
         "total_jobs": len(jobs)
     }
+
+@app.on_event("startup")
+async def startup_event():
+    """Запуск при старте приложения"""
+    logger.info("🚀 Запуск Power of Attorney Tracker...")
+    
+    # Инициализация БД
+    init_database()
+    
+    # Запуск планировщика
+    await start_scheduler()
+    
+    # Проверка настроек
+    if not TELEGRAM_BOT_TOKEN:
+        logger.warning(" TELEGRAM_BOT_TOKEN не настроен. Уведомления не будут отправляться.")
+    else:
+        logger.info(" Telegram бот настроен")
+    
+    if not DATABASE_URL:
+        logger.warning(" DATABASE_URL не настроен. Используйте Railway для настройки PostgreSQL.")
+    else:
+        logger.info(" База данных настроена")
+    
+    logger.info(" Приложение успешно запущено")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Остановка при завершении приложения"""
+    logger.info(" Остановка Power of Attorney Tracker...")
+    await stop_scheduler()
+    logger.info(" Планировщик остановлен, приложение завершено")
 # ==================== ЗАПУСК СЕРВЕРА ====================
 if __name__ == "__main__":
     # Получаем порт из переменной окружения Railway
