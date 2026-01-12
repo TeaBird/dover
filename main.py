@@ -560,7 +560,7 @@ async def web_interface():
             function showAlert(message, type = 'success') {
                 const alert = document.getElementById('alert');
                 alert.textContent = message;
-                alert.className = `alert alert-${type}`;
+                alert.className = 'alert alert-' + type;
                 alert.style.display = 'block';
                 
                 setTimeout(() => {
@@ -574,7 +574,7 @@ async def web_interface():
                     const response = await fetch('/api/db-info');
                     const info = await response.json();
                     
-                    alert(`Статус БД: ${info.status}\\nЗаписей в БД: ${info.total_records}\\nРазмер таблицы: ${info.table_size}`);
+                    alert('Статус БД: ' + info.status + '\\nЗаписей в БД: ' + info.total_records + '\\nРазмер таблицы: ' + info.table_size);
                 } catch (error) {
                     alert('Ошибка проверки БД');
                 }
@@ -600,7 +600,7 @@ async def web_interface():
                         const daysLeft = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
                         
                         let badgeClass = 'badge badge-success';
-                        let badgeText = `${daysLeft} дн.`;
+                        let badgeText = daysLeft + ' дн.';
                         
                         if (daysLeft <= 0) {
                             badgeClass = 'badge badge-danger';
@@ -613,21 +613,20 @@ async def web_interface():
                             badgeClass = 'badge badge-info';
                         }
                         
-                        html += `
-                            <tr>
-                                <td>
-                                    <strong>\${power.full_name}</strong>
-                                    <br><small style="color: #28a745;">🔔 Уведомления Telegram</small>
-                                </td>
-                                <td><span class="badge badge-info">\${power.poa_type}</span></td>
-                                <td>\${power.start_date}</td>
-                                <td>\${power.end_date}</td>
-                                <td><span class="\${badgeClass}">\${badgeText}</span></td>
-                                <td>
-                                    <button onclick="deletePower(\${power.id})" class="delete-btn">🗑️ Удалить</button>
-                                </td>
-                            </tr>
-                        \`;
+                        html += 
+                            '<tr>' +
+                                '<td>' +
+                                    '<strong>' + power.full_name + '</strong>' +
+                                    '<br><small style="color: #28a745;">🔔 Уведомления Telegram</small>' +
+                                '</td>' +
+                                '<td><span class="badge badge-info">' + power.poa_type + '</span></td>' +
+                                '<td>' + power.start_date + '</td>' +
+                                '<td>' + power.end_date + '</td>' +
+                                '<td><span class="' + badgeClass + '">' + badgeText + '</span></td>' +
+                                '<td>' +
+                                    '<button onclick="deletePower(' + power.id + ')" class="delete-btn">🗑️ Удалить</button>' +
+                                '</td>' +
+                            '</tr>';
                     });
                     
                     html += '</tbody></table>';
@@ -672,13 +671,12 @@ async def web_interface():
                         ? '<span style="color: #28a745;">✅ Настроен</span>'
                         : '<span style="color: #dc3545;">❌ Не настроен</span>';
                     
-                    document.getElementById('status').innerHTML = `
-                        <p><strong>Статус:</strong> <span style="color: #28a745;">● \${status.status}</span></p>
-                        <p><strong>База данных:</strong> \${status.database} (\${status.database_type})</p>
-                        <p><strong>Telegram бот:</strong> \${botStatus}</p>
-                        <p><strong>Порт:</strong> \${status.port}</p>
-                        <p><strong>Время:</strong> \${new Date(status.timestamp).toLocaleString()}</p>
-                    \`;
+                    document.getElementById('status').innerHTML = 
+                        '<p><strong>Статус:</strong> <span style="color: #28a745;">● ' + status.status + '</span></p>' +
+                        '<p><strong>База данных:</strong> ' + status.database + ' (' + status.database_type + ')</p>' +
+                        '<p><strong>Telegram бот:</strong> ' + botStatus + '</p>' +
+                        '<p><strong>Порт:</strong> ' + status.port + '</p>' +
+                        '<p><strong>Время:</strong> ' + new Date(status.timestamp).toLocaleString() + '</p>';
                 } catch (error) {
                     document.getElementById('status').innerHTML = '<p>❌ Ошибка проверки статуса</p>';
                 }
@@ -689,7 +687,7 @@ async def web_interface():
                 if (!confirm('Удалить эту доверенность?')) return;
                 
                 try {
-                    const response = await fetch(\`/api/powers/\${id}\`, {
+                    const response = await fetch('/api/powers/' + id, {
                         method: 'DELETE'
                     });
                     
@@ -727,18 +725,18 @@ async def web_interface():
                     params.append('poa_type', formData.poa_type);
                     params.append('end_date', formData.end_date);
                     
-                    const response = await fetch(\`/api/powers/?\${params.toString()}\`, {
+                    const response = await fetch('/api/powers/?' + params.toString(), {
                         method: 'POST'
                     });
                     
                     if (response.ok) {
                         const result = await response.json();
-                        showAlert(\`✅ Доверенность "\${formData.full_name}" добавлена! (ID: \${result.id})\`);
+                        showAlert('✅ Доверенность "' + formData.full_name + '" добавлена! (ID: ' + result.id + ')');
                         document.getElementById('addForm').reset();
                         loadPowers();
                     } else {
                         const error = await response.json();
-                        showAlert(\`❌ Ошибка: \${error.detail || 'Неизвестная ошибка'}\`, 'error');
+                        showAlert('❌ Ошибка: ' + (error.detail || 'Неизвестная ошибка'), 'error');
                     }
                 } catch (error) {
                     showAlert('❌ Ошибка сети', 'error');
