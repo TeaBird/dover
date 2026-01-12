@@ -105,7 +105,7 @@ async def check_expiring_powers():
             days_left = (end_date - today).days
             
             # Проверяем, нужно ли отправить уведомление
-            if days_left in NOTIFICATION_DAYS and not power_dict.get('notification_sent'):
+            if days_left in NOTIFICATION_DAYS:
                 # Формируем сообщение
                 message = f"""
 <b> НАПОМИНАНИЕ: Истекает доверенность</b>
