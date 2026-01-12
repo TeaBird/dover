@@ -6,13 +6,10 @@ import asyncio
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 import uvicorn
-
-# Импорты для PostgreSQL
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -20,7 +17,7 @@ from psycopg2.extras import RealDictCursor
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 DATABASE_URL = os.getenv("DATABASE_URL")
 NOTIFICATION_DAYS = [7, 3, 1]
-TELEGRAM_CHAT_ID = "-5140897831
+TELEGRAM_CHAT_ID = "-5140897831"
 
 # Настройка логирования
 logging.basicConfig(
