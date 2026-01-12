@@ -771,13 +771,6 @@ async def web_interface():
                     </div>
                 </div>
                 
-                <!-- Статус системы -->
-                <div class="card">
-                    <h3> Статус системы</h3>
-                    <div id="status">
-                        <p>Проверка статуса...</p>
-                    </div>
-                </div>
             </div>
         </div>
         
