@@ -114,8 +114,6 @@ async def check_expiring_powers():
 <b> Тип:</b> {power_dict['poa_type']}
 <b> Дата окончания:</b> {end_date.strftime('%d.%m.%Y')}
 <b> Осталось дней:</b> {days_left}
-
-<i>Доверенность скоро истечет!</i>
 """
                 
                 # Отправляем уведомление
