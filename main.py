@@ -524,7 +524,7 @@ async def web_interface():
             <!-- Левая колонка: Форма -->
             <div>
                 <div class="card">
-                    <h2 style="margin-top: 0;">➕ Добавить доверенность</h2>
+                    <h2 style="margin-top: 0;"> Добавить доверенность</h2>
                     <div id="alert" class="alert"></div>
                     
                     <form id="addForm">
@@ -554,7 +554,7 @@ async def web_interface():
                 
                 <!-- Статистика -->
                 <div class="card">
-                    <h3>📊 Статистика</h3>
+                    <h3> Статистика</h3>
                     <div class="stats" id="stats">
                         <div class="stat-card">
                             <div class="stat-value" id="totalCount">0</div>
@@ -599,7 +599,7 @@ async def web_interface():
                 
                 <!-- Статус системы -->
                 <div class="card">
-                    <h3>⚙️ Статус системы</h3>
+                    <h3> Статус системы</h3>
                     <div id="status">
                         <p>Проверка статуса...</p>
                     </div>
@@ -678,7 +678,7 @@ async def web_interface():
                                 '<td>' + power.end_date + '</td>' +
                                 '<td><span class="' + badgeClass + '">' + badgeText + '</span></td>' +
                                 '<td>' +
-                                    '<button onclick="deletePower(' + power.id + ')" class="delete-btn">🗑️ Удалить</button>' +
+                                    '<button onclick="deletePower(' + power.id + ')" class="delete-btn"> Удалить</button>' +
                                 '</td>' +
                             '</tr>';
                     });
