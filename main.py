@@ -150,9 +150,7 @@ async def send_test_notification():
 <b> Статус:</b> Система работает нормально
 <b> База данных:</b> Активна
 <b> Время:</b> {time}
-<b> Сообщение:</b> Тестовое уведомление отправлено успешно!
 
-<i>Это автоматическое тестовое сообщение для проверки работы бота.</i>
 """.format(time=datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
     
     if await send_telegram_notification(TELEGRAM_CHAT_ID, test_message):
@@ -1054,7 +1052,7 @@ async def get_scheduler_status():
 @app.on_event("startup")
 async def startup_event():
     """Запуск при старте приложения"""
-    logger.info("🚀 Запуск Power of Attorney Tracker...")
+    logger.info(" Запуск Power of Attorney Tracker...")
     
     # Инициализация БД
     init_database()
