@@ -160,7 +160,6 @@ async def send_test_notification():
 # ==================== ПЛАНИРОВЩИК ====================
 scheduler = AsyncIOScheduler()
 
-
 import atexit
 
 # Запускаем планировщик сразу
@@ -176,7 +175,7 @@ async def start_scheduler():
         # Проверка каждое утро в 9:00
         scheduler.add_job(
             check_expiring_powers,
-            CronTrigger(hour=13, minute=58),
+            CronTrigger(hour=14, minute=37),
             id='check_expiring_powers',
             name='Проверка истекающих доверенностей',
             replace_existing=True
