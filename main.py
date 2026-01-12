@@ -162,23 +162,26 @@ scheduler = AsyncIOScheduler()
 
 import atexit
 
-# Запускаем планировщик сразу
-scheduler.start()
-logger.info(" Планировщик запущен при импорте")
-
-# Регистрируем остановку при выходе
-atexit.register(lambda: scheduler.shutdown())
-
-async def start_scheduler():
+def start_scheduler():
     """Запуск планировщика уведомлений"""
     try:
-        # Проверка каждое утро в 9:00
+        # Проверка в 14:37 каждый день
         scheduler.add_job(
             check_expiring_powers,
             CronTrigger(hour=14, minute=37),
             id='check_expiring_powers',
-            name='Проверка истекающих доверенностей',
+            name='Проверка истекающих доверенностей (14:37)',
             replace_existing=True
+        )
+        
+        # Добавляем тестовую задачу на текущее время + 1 минута
+        test_time = datetime.now() + timedelta(minutes=1)
+        scheduler.add_job(
+            check_expiring_powers,
+            'date',
+            run_date=test_time,
+            id='test_check',
+            name='Тестовая проверка через 1 минуту'
         )
         
         # Тестовое уведомление при старте (если настроен бот)
@@ -186,19 +189,26 @@ async def start_scheduler():
             scheduler.add_job(
                 send_test_notification,
                 'date',
-                run_date=datetime.now() + timedelta(seconds=10),
+                run_date=datetime.now() + timedelta(seconds=15),
                 id='send_test_notification'
             )
         
-        logger.info(" Задачи планировщика добавлены")
+        # Запускаем планировщик
+        scheduler.start()
+        logger.info(" Планировщик уведомлений запущен")
+        
+        # Логируем информацию о задачах
+        logger.info(f" Запланировано задач: {len(scheduler.get_jobs())}")
+        for job in scheduler.get_jobs():
+            logger.info(f"    Задача: {job.name}, след. запуск: {job.next_run_time}")
         
     except Exception as e:
         logger.error(f" Ошибка запуска планировщика: {e}")
 
-async def stop_scheduler():
+def stop_scheduler():
     """Остановка планировщика"""
     scheduler.shutdown()
-    logger.info("Планировщик уведомлений остановлен")
+    logger.info("✅ Планировщик уведомлений остановлен")
 # ==================== БАЗА ДАННЫХ ====================
 def get_db_connection():
     """Получение соединения с PostgreSQL"""
@@ -1058,13 +1068,13 @@ async def get_scheduler_status():
 @app.on_event("startup")
 async def startup_event():
     """Запуск при старте приложения"""
-    logger.info(" Запуск Power of Attorney Tracker...")
+    logger.info("🚀 Запуск Power of Attorney Tracker...")
     
     # Инициализация БД
     init_database()
     
     # Запуск планировщика
-    await start_scheduler()
+    start_scheduler()  # УБЕРИТЕ await!
     
     # Проверка настроек
     if not TELEGRAM_BOT_TOKEN:
@@ -1080,10 +1090,10 @@ async def startup_event():
     logger.info(" Приложение успешно запущено")
 
 @app.on_event("shutdown")
-async def shutdown_event():
+def shutdown_event():
     """Остановка при завершении приложения"""
     logger.info(" Остановка Power of Attorney Tracker...")
-    await stop_scheduler()
+    stop_scheduler()  # УБЕРИТЕ await!
     logger.info(" Планировщик остановлен, приложение завершено")
 # ==================== ЗАПУСК СЕРВЕРА ====================
 if __name__ == "__main__":
