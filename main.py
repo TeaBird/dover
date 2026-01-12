@@ -518,7 +518,6 @@ async def web_interface():
     <body>
         <div class="header">
             <h1> Трекер доверенностей (PostgreSQL)</h1>
-            <p>Отслеживание сроков доверенностей с уведомлениями в Telegram</p>
         </div>
         
         <div class="container">
