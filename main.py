@@ -267,258 +267,6 @@ def init_database():
 # Инициализируем БД при старте
 init_database()
 
-# ==================== API ENDPOINTS ====================
-@app.get("/")
-async def root():
-    """Корневая страница"""
-    return {
-        "service": "Power of Attorney Tracker",
-        "status": "running",
-        "version": "1.0.0",
-        "database": "PostgreSQL",
-        "docs": "/docs",
-        "ui": "/ui"
-    }
-
-@app.get("/api/health")
-async def health_check():
-    """Проверка здоровья"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.close()
-        conn.close()
-        db_status = "healthy"
-    except Exception as e:
-        db_status = f"error: {str(e)}"
-    
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "database": db_status,
-        "database_type": "PostgreSQL",
-        "telegram_bot": "configured" if TELEGRAM_BOT_TOKEN else "not_configured",
-        "port": os.getenv("PORT", "8000")
-    }
-
-@app.get("/api/db-info")
-async def db_info():
-    """Информация о базе данных"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Информация о таблице
-        cursor.execute("SELECT COUNT(*) as count FROM powers_of_attorney")
-        count_result = cursor.fetchone()
-        total_records = count_result['count'] if count_result else 0
-        
-        # Информация о базе
-        cursor.execute("SELECT current_database() as db_name, current_user as user")
-        db_info = cursor.fetchone()
-        
-        # Размер таблицы
-        cursor.execute("SELECT pg_size_pretty(pg_total_relation_size('powers_of_attorney')) as table_size")
-        size_info = cursor.fetchone()
-        
-        cursor.close()
-        conn.close()
-        
-        return {
-            "status": "success",
-            "database": "PostgreSQL",
-            "total_records": total_records,
-            "database_name": db_info['db_name'] if db_info else "unknown",
-            "current_user": db_info['user'] if db_info else "unknown",
-            "table_size": size_info['table_size'] if size_info else "unknown",
-            "connection_url": DATABASE_URL[:50] + "..." if DATABASE_URL else "not_set"
-        }
-        
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e),
-            "database_url_set": bool(DATABASE_URL)
-        }
-
-@app.post("/api/powers/")
-async def create_power(
-    full_name: str,
-    poa_type: str,
-    end_date: str
-):
-    """Создать новую доверенность"""
-    try:
-        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Неправильный формат даты. Используйте YYYY-MM-DD")
-    
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO powers_of_attorney 
-            (full_name, poa_type, start_date, end_date)
-            VALUES (%s, %s, %s, %s)
-            RETURNING id
-        ''', (
-            full_name,
-            poa_type,
-            date.today().isoformat(),
-            end_date_obj.isoformat()
-        ))
-        
-        power_id = cursor.fetchone()[0]
-        conn.commit()
-        
-        cursor.close()
-        conn.close()
-        
-        logger.info(f"Создана доверенность ID {power_id} для {full_name}")
-        
-        return {
-            "id": power_id,
-            "message": "Доверенность создана",
-            "full_name": full_name,
-            "end_date": end_date,
-            "database": "PostgreSQL"
-        }
-        
-    except Exception as e:
-        logger.error(f"Ошибка создания доверенности: {e}")
-        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
-
-@app.get("/api/powers/")
-async def get_powers():
-    """Получить все доверенности"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Запрос с правильным вычислением days_remaining
-        cursor.execute('''
-            SELECT 
-                id,
-                full_name,
-                poa_type,
-                start_date,
-                end_date,
-                telegram_chat_id,
-                notification_sent,
-                created_at,
-                (end_date - CURRENT_DATE) as days_remaining
-            FROM powers_of_attorney 
-            ORDER BY end_date ASC
-        ''')
-        
-        powers = cursor.fetchall()
-        
-        # Конвертируем результат
-        result = []
-        for power in powers:
-            power_dict = dict(power)
-            
-            # Преобразуем даты в строки
-            if power_dict.get('start_date'):
-                if isinstance(power_dict['start_date'], date):
-                    power_dict['start_date'] = power_dict['start_date'].isoformat()
-                elif isinstance(power_dict['start_date'], datetime):
-                    power_dict['start_date'] = power_dict['start_date'].date().isoformat()
-            
-            if power_dict.get('end_date'):
-                if isinstance(power_dict['end_date'], date):
-                    power_dict['end_date'] = power_dict['end_date'].isoformat()
-                elif isinstance(power_dict['end_date'], datetime):
-                    power_dict['end_date'] = power_dict['end_date'].date().isoformat()
-            
-            if power_dict.get('created_at'):
-                if isinstance(power_dict['created_at'], datetime):
-                    power_dict['created_at'] = power_dict['created_at'].isoformat()
-            
-            # Обрабатываем days_remaining
-            # В PostgreSQL (end_date - CURRENT_DATE) возвращает интервал
-            # Нужно извлечь количество дней
-            if power_dict.get('days_remaining') is not None:
-                days_rem = power_dict['days_remaining']
-                if hasattr(days_rem, 'days'):
-                    # Это timedelta объект
-                    power_dict['days_remaining'] = days_rem.days
-                elif isinstance(days_rem, int):
-                    # Уже число
-                    power_dict['days_remaining'] = days_rem
-                else:
-                    # Другой тип, преобразуем
-                    try:
-                        power_dict['days_remaining'] = int(days_rem)
-                    except:
-                        power_dict['days_remaining'] = 0
-            else:
-                power_dict['days_remaining'] = 0
-            
-            result.append(power_dict)
-        
-        cursor.close()
-        conn.close()
-        
-        logger.info(f"Получено {len(result)} доверенностей")
-        return result
-        
-    except Exception as e:
-        logger.error(f"Ошибка получения доверенностей: {e}")
-        import traceback
-        error_details = traceback.format_exc()
-        
-        # Для отладки: что возвращает запрос
-        try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM powers_of_attorney LIMIT 1")
-            sample = cursor.fetchone()
-            cursor.close()
-            conn.close()
-        except:
-            sample = None
-        
-        return {
-            "error": True,
-            "message": str(e),
-            "sample_row": str(sample) if sample else "нет данных",
-            "traceback": error_details
-        }
-
-@app.delete("/api/powers/{power_id}")
-async def delete_power(power_id: int):
-    """Удалить доверенность"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('DELETE FROM powers_of_attorney WHERE id = %s', (power_id,))
-        deleted = cursor.rowcount > 0
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Доверенность не найдена")
-        
-        logger.info(f"Удалена доверенность ID {power_id}")
-        
-        return {
-            "message": "Доверенность удалена",
-            "id": power_id,
-            "database": "PostgreSQL"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Ошибка удаления доверенности: {e}")
-        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
-
 # ==================== HTML ИНТЕРФЕЙС ====================
 # (Оставьте HTML интерфейс без изменений из вашего предыдущего кода)
 # ВАЖНО: Уберите лишний JavaScript код для telegram_chat_id
@@ -951,7 +699,260 @@ async def web_interface():
     </html>
     """
     return HTMLResponse(content=html_content)
-# ==================== ТЕСТОВЫЕ API ====================
+    
+# ==================== API ====================
+
+
+@app.get("/")
+async def root():
+    """Корневая страница"""
+    return {
+        "service": "Power of Attorney Tracker",
+        "status": "running",
+        "version": "1.0.0",
+        "database": "PostgreSQL",
+        "docs": "/docs",
+        "ui": "/ui"
+    }
+
+@app.get("/api/health")
+async def health_check():
+    """Проверка здоровья"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        cursor.close()
+        conn.close()
+        db_status = "healthy"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "database": db_status,
+        "database_type": "PostgreSQL",
+        "telegram_bot": "configured" if TELEGRAM_BOT_TOKEN else "not_configured",
+        "port": os.getenv("PORT", "8000")
+    }
+
+@app.get("/api/db-info")
+async def db_info():
+    """Информация о базе данных"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Информация о таблице
+        cursor.execute("SELECT COUNT(*) as count FROM powers_of_attorney")
+        count_result = cursor.fetchone()
+        total_records = count_result['count'] if count_result else 0
+        
+        # Информация о базе
+        cursor.execute("SELECT current_database() as db_name, current_user as user")
+        db_info = cursor.fetchone()
+        
+        # Размер таблицы
+        cursor.execute("SELECT pg_size_pretty(pg_total_relation_size('powers_of_attorney')) as table_size")
+        size_info = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        return {
+            "status": "success",
+            "database": "PostgreSQL",
+            "total_records": total_records,
+            "database_name": db_info['db_name'] if db_info else "unknown",
+            "current_user": db_info['user'] if db_info else "unknown",
+            "table_size": size_info['table_size'] if size_info else "unknown",
+            "connection_url": DATABASE_URL[:50] + "..." if DATABASE_URL else "not_set"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "database_url_set": bool(DATABASE_URL)
+        }
+
+@app.post("/api/powers/")
+async def create_power(
+    full_name: str,
+    poa_type: str,
+    end_date: str
+):
+    """Создать новую доверенность"""
+    try:
+        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Неправильный формат даты. Используйте YYYY-MM-DD")
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO powers_of_attorney 
+            (full_name, poa_type, start_date, end_date)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            full_name,
+            poa_type,
+            date.today().isoformat(),
+            end_date_obj.isoformat()
+        ))
+        
+        power_id = cursor.fetchone()[0]
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"Создана доверенность ID {power_id} для {full_name}")
+        
+        return {
+            "id": power_id,
+            "message": "Доверенность создана",
+            "full_name": full_name,
+            "end_date": end_date,
+            "database": "PostgreSQL"
+        }
+        
+    except Exception as e:
+        logger.error(f"Ошибка создания доверенности: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
+
+@app.get("/api/powers/")
+async def get_powers():
+    """Получить все доверенности"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Запрос с правильным вычислением days_remaining
+        cursor.execute('''
+            SELECT 
+                id,
+                full_name,
+                poa_type,
+                start_date,
+                end_date,
+                telegram_chat_id,
+                notification_sent,
+                created_at,
+                (end_date - CURRENT_DATE) as days_remaining
+            FROM powers_of_attorney 
+            ORDER BY end_date ASC
+        ''')
+        
+        powers = cursor.fetchall()
+        
+        # Конвертируем результат
+        result = []
+        for power in powers:
+            power_dict = dict(power)
+            
+            # Преобразуем даты в строки
+            if power_dict.get('start_date'):
+                if isinstance(power_dict['start_date'], date):
+                    power_dict['start_date'] = power_dict['start_date'].isoformat()
+                elif isinstance(power_dict['start_date'], datetime):
+                    power_dict['start_date'] = power_dict['start_date'].date().isoformat()
+            
+            if power_dict.get('end_date'):
+                if isinstance(power_dict['end_date'], date):
+                    power_dict['end_date'] = power_dict['end_date'].isoformat()
+                elif isinstance(power_dict['end_date'], datetime):
+                    power_dict['end_date'] = power_dict['end_date'].date().isoformat()
+            
+            if power_dict.get('created_at'):
+                if isinstance(power_dict['created_at'], datetime):
+                    power_dict['created_at'] = power_dict['created_at'].isoformat()
+            
+            # Обрабатываем days_remaining
+            # В PostgreSQL (end_date - CURRENT_DATE) возвращает интервал
+            # Нужно извлечь количество дней
+            if power_dict.get('days_remaining') is not None:
+                days_rem = power_dict['days_remaining']
+                if hasattr(days_rem, 'days'):
+                    # Это timedelta объект
+                    power_dict['days_remaining'] = days_rem.days
+                elif isinstance(days_rem, int):
+                    # Уже число
+                    power_dict['days_remaining'] = days_rem
+                else:
+                    # Другой тип, преобразуем
+                    try:
+                        power_dict['days_remaining'] = int(days_rem)
+                    except:
+                        power_dict['days_remaining'] = 0
+            else:
+                power_dict['days_remaining'] = 0
+            
+            result.append(power_dict)
+        
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"Получено {len(result)} доверенностей")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения доверенностей: {e}")
+        import traceback
+        error_details = traceback.format_exc()
+        
+        # Для отладки: что возвращает запрос
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM powers_of_attorney LIMIT 1")
+            sample = cursor.fetchone()
+            cursor.close()
+            conn.close()
+        except:
+            sample = None
+        
+        return {
+            "error": True,
+            "message": str(e),
+            "sample_row": str(sample) if sample else "нет данных",
+            "traceback": error_details
+        }
+
+@app.delete("/api/powers/{power_id}")
+async def delete_power(power_id: int):
+    """Удалить доверенность"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM powers_of_attorney WHERE id = %s', (power_id,))
+        deleted = cursor.rowcount > 0
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Доверенность не найдена")
+        
+        logger.info(f"Удалена доверенность ID {power_id}")
+        
+        return {
+            "message": "Доверенность удалена",
+            "id": power_id,
+            "database": "PostgreSQL"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка удаления доверенности: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
 
 @app.get("/api/test-notification")
 async def test_notification():
