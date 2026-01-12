@@ -613,7 +613,7 @@ async def web_interface():
                             badgeClass = 'badge badge-info';
                         }
                         
-                        html += \`
+                        html += `
                             <tr>
                                 <td>
                                     <strong>\${power.full_name}</strong>
