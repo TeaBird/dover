@@ -37,34 +37,64 @@ def get_db_connection():
     return conn
 
 def init_database():
-    """Инициализация базы данных PostgreSQL"""
+    """Инициализация базы данных"""
     try:
-        conn = get_db_connection()
+        conn, db_type = get_db_connection()
         cursor = conn.cursor()
         
-        # Создаем таблицу если её нет
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS powers_of_attorney (
-                id SERIAL PRIMARY KEY,
-                full_name TEXT NOT NULL,
-                poa_type TEXT NOT NULL,
-                start_date DATE NOT NULL,
-                end_date DATE NOT NULL,
-                telegram_chat_id TEXT DEFAULT '-5140897831',
-                notification_sent BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+        # Простая проверка/создание таблицы
+        if db_type == 'postgresql':
+            # Проверяем существует ли таблица
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'powers_of_attorney'
+                )
+            """)
+            table_exists = cursor.fetchone()[0]
+            
+            if not table_exists:
+                # Создаем таблицу
+                cursor.execute('''
+                    CREATE TABLE powers_of_attorney (
+                        id SERIAL PRIMARY KEY,
+                        full_name TEXT NOT NULL,
+                        poa_type TEXT NOT NULL,
+                        start_date DATE NOT NULL,
+                        end_date DATE NOT NULL,
+                        telegram_chat_id TEXT DEFAULT '-5140897831',
+                        notification_sent BOOLEAN DEFAULT FALSE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                logger.info("Таблица powers_of_attorney создана в PostgreSQL")
+            else:
+                logger.info("Таблица powers_of_attorney уже существует")
+                
+        else:
+            # SQLite
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS powers_of_attorney (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    full_name TEXT NOT NULL,
+                    poa_type TEXT NOT NULL,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    telegram_chat_id TEXT DEFAULT '-5140897831',
+                    notification_sent BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            logger.info("Таблица powers_of_attorney проверена/создана в SQLite")
         
         conn.commit()
         cursor.close()
         conn.close()
         
-        logger.info("База данных PostgreSQL инициализирована")
-        
     except Exception as e:
         logger.error(f"Ошибка инициализации БД: {e}")
-        raise
+        # Не падаем, просто логируем ошибку
 
 # Инициализируем БД при старте
 init_database()
