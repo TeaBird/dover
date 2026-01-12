@@ -595,9 +595,7 @@ async def web_interface():
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h2 style="margin: 0;"> Список доверенностей</h2>
-                        <button onclick="loadPowers()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">
-                             Обновить
-                        </button>
+                        
                     </div>
                     
                     <div id="powersList">
