@@ -951,7 +951,75 @@ async def web_interface():
     </html>
     """
     return HTMLResponse(content=html_content)
+# ==================== ТЕСТОВЫЕ API ====================
 
+@app.get("/api/test-notification")
+async def test_notification():
+    """Тестовое уведомление - УПРОЩЕННАЯ ВЕРСИЯ"""
+    try:
+        if not TELEGRAM_BOT_TOKEN:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": "Telegram bot token не настроен",
+                    "telegram_token_set": False
+                }
+            )
+        
+        # Простой тест отправки
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": "✅ ТЕСТ: Система работает!\nВремя: " + datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+            "parse_mode": "HTML"
+        }
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json=payload)
+        
+        if response.status_code == 200:
+            logger.info("✅ Тестовое уведомление отправлено через API")
+            return {
+                "status": "success",
+                "message": "Тестовое уведомление отправлено в Telegram",
+                "telegram_chat_id": TELEGRAM_CHAT_ID,
+                "timestamp": datetime.now().isoformat(),
+                "response": "ok"
+            }
+        else:
+            logger.error(f"Ошибка Telegram API: {response.status_code}")
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "status": "error",
+                    "message": f"Ошибка Telegram API: {response.status_code}",
+                    "response_text": response.text[:200] if response.text else "нет ответа"
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Ошибка тестового уведомления: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Ошибка: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }
+        )
+
+@app.get("/api/simple-test")
+async def simple_test():
+    """Простой тест без Telegram"""
+    return {
+        "status": "success",
+        "message": "API работает",
+        "telegram_configured": bool(TELEGRAM_BOT_TOKEN),
+        "database_configured": bool(DATABASE_URL),
+        "chat_id": TELEGRAM_CHAT_ID,
+        "timestamp": datetime.now().isoformat()
+    }
 # ==================== ЗАПУСК СЕРВЕРА ====================
 if __name__ == "__main__":
     # Получаем порт из переменной окружения Railway
