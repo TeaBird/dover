@@ -571,16 +571,6 @@ async def web_interface():
                     </div>
                 </div>
                 
-                <!-- Информация о БД -->
-                <div class="card">
-                    <h3> База данных</h3>
-                    <p>Используется: <strong>PostgreSQL</strong></p>
-                    <p>Данные сохраняются навсегда</p>
-                    <button onclick="checkDbStatus()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-top: 10px;">
-                         Проверить статус БД
-                    </button>
-                </div>
-            </div>
             
             <!-- Правая колонка: Список -->
             <div>
