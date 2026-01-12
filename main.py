@@ -384,15 +384,6 @@ async def web_interface():
                         </div>
                     </div>
                 </div>
-                
-                <!-- Ссылки -->
-                <div class="card">
-                    <h3>🔗 Быстрые ссылки</h3>
-                    <p><a href="/docs" target="_blank"> API Документация</a></p>
-                    <p><a href="https://t.me/getmyid_bot" target="_blank"> Получить Telegram ID</a></p>
-                    <p><a href="https://t.me/BotFather" target="_blank"> Создать Telegram бота</a></p>
-                </div>
-            </div>
             
             <!-- Правая колонка: Список -->
             <div>
