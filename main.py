@@ -462,7 +462,7 @@ async def web_interface():
     </head>
     <body>
         <div class="header">
-            <h1>📋 Трекер доверенностей (PostgreSQL)</h1>
+            <h1> Трекер доверенностей (PostgreSQL)</h1>
             <p>Отслеживание сроков доверенностей с уведомлениями в Telegram</p>
         </div>
         
@@ -494,7 +494,7 @@ async def web_interface():
                             <input type="date" id="end_date" required>
                         </div>
                         
-                        <button type="submit" class="btn">✅ Сохранить доверенность</button>
+                        <button type="submit" class="btn"> Сохранить доверенность</button>
                     </form>
                 </div>
                 
@@ -519,11 +519,11 @@ async def web_interface():
                 
                 <!-- Информация о БД -->
                 <div class="card">
-                    <h3>🗄️ База данных</h3>
+                    <h3> База данных</h3>
                     <p>Используется: <strong>PostgreSQL</strong></p>
                     <p>Данные сохраняются навсегда</p>
                     <button onclick="checkDbStatus()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-top: 10px;">
-                        🔍 Проверить статус БД
+                         Проверить статус БД
                     </button>
                 </div>
             </div>
@@ -532,9 +532,9 @@ async def web_interface():
             <div>
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h2 style="margin: 0;">📋 Список доверенностей</h2>
+                        <h2 style="margin: 0;"> Список доверенностей</h2>
                         <button onclick="loadPowers()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">
-                            🔄 Обновить
+                             Обновить
                         </button>
                     </div>
                     
@@ -617,7 +617,7 @@ async def web_interface():
                             '<tr>' +
                                 '<td>' +
                                     '<strong>' + power.full_name + '</strong>' +
-                                    '<br><small style="color: #28a745;">🔔 Уведомления Telegram</small>' +
+                                    '<br><small style="color: #28a745;"> Уведомления Telegram</small>' +
                                 '</td>' +
                                 '<td><span class="badge badge-info">' + power.poa_type + '</span></td>' +
                                 '<td>' + power.start_date + '</td>' +
@@ -635,7 +635,7 @@ async def web_interface():
                     updateStats();
                     
                 } catch (error) {
-                    document.getElementById('powersList').innerHTML = '<p>❌ Ошибка загрузки данных</p>';
+                    document.getElementById('powersList').innerHTML = '<p> Ошибка загрузки данных</p>';
                     console.error('Error:', error);
                 }
             }
@@ -668,8 +668,8 @@ async def web_interface():
                     const status = await response.json();
                     
                     const botStatus = status.telegram_bot === 'configured' 
-                        ? '<span style="color: #28a745;">✅ Настроен</span>'
-                        : '<span style="color: #dc3545;">❌ Не настроен</span>';
+                        ? '<span style="color: #28a745;"> Настроен</span>'
+                        : '<span style="color: #dc3545;"> Не настроен</span>';
                     
                     document.getElementById('status').innerHTML = 
                         '<p><strong>Статус:</strong> <span style="color: #28a745;">● ' + status.status + '</span></p>' +
@@ -678,7 +678,7 @@ async def web_interface():
                         '<p><strong>Порт:</strong> ' + status.port + '</p>' +
                         '<p><strong>Время:</strong> ' + new Date(status.timestamp).toLocaleString() + '</p>';
                 } catch (error) {
-                    document.getElementById('status').innerHTML = '<p>❌ Ошибка проверки статуса</p>';
+                    document.getElementById('status').innerHTML = '<p> Ошибка проверки статуса</p>';
                 }
             }
             
@@ -692,13 +692,13 @@ async def web_interface():
                     });
                     
                     if (response.ok) {
-                        showAlert('✅ Доверенность удалена!');
+                        showAlert(' Доверенность удалена!');
                         loadPowers();
                     } else {
-                        showAlert('❌ Ошибка при удалении', 'error');
+                        showAlert(' Ошибка при удалении', 'error');
                     }
                 } catch (error) {
-                    showAlert('❌ Ошибка сети', 'error');
+                    showAlert(' Ошибка сети', 'error');
                 }
             }
             
@@ -714,7 +714,7 @@ async def web_interface():
                 
                 // Валидация
                 if (!formData.full_name || !formData.poa_type || !formData.end_date) {
-                    showAlert('❌ Заполните все обязательные поля', 'error');
+                    showAlert(' Заполните все обязательные поля', 'error');
                     return;
                 }
                 
@@ -731,15 +731,15 @@ async def web_interface():
                     
                     if (response.ok) {
                         const result = await response.json();
-                        showAlert('✅ Доверенность "' + formData.full_name + '" добавлена! (ID: ' + result.id + ')');
+                        showAlert(' Доверенность "' + formData.full_name + '" добавлена! (ID: ' + result.id + ')');
                         document.getElementById('addForm').reset();
                         loadPowers();
                     } else {
                         const error = await response.json();
-                        showAlert('❌ Ошибка: ' + (error.detail || 'Неизвестная ошибка'), 'error');
+                        showAlert(' Ошибка: ' + (error.detail || 'Неизвестная ошибка'), 'error');
                     }
                 } catch (error) {
-                    showAlert('❌ Ошибка сети', 'error');
+                    showAlert(' Ошибка сети', 'error');
                 }
             });
             
@@ -770,11 +770,11 @@ if __name__ == "__main__":
     HOST = "0.0.0.0"
     
     print("=" * 60)
-    print("🚀 Power of Attorney Tracker with PostgreSQL")
+    print(" Power of Attorney Tracker with PostgreSQL")
     print("=" * 60)
     print(f"Сервер запущен на: {HOST}:{PORT}")
     print(f"База данных: {'PostgreSQL (Railway)' if DATABASE_URL else 'Не настроена'}")
-    print(f"Telegram бот: {'✅ Настроен' if TELEGRAM_BOT_TOKEN else '❌ Не настроен'}")
+    print(f"Telegram бот: {' Настроен' if TELEGRAM_BOT_TOKEN else ' Не настроен'}")
     print("=" * 60)
     print("Доступные эндпоинты:")
     print(f"  • Веб-интерфейс: http://localhost:{PORT}/ui")
