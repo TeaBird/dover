@@ -3,6 +3,9 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional
 import asyncio
+import httpx
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -15,7 +18,9 @@ from psycopg2.extras import RealDictCursor
 
 # ==================== НАСТРОЙКИ ====================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-DATABASE_URL = os.getenv("DATABASE_URL")  # Railway автоматически добавляет эту переменную
+DATABASE_URL = os.getenv("DATABASE_URL")
+NOTIFICATION_DAYS = [7, 3, 1]
+TELEGRAM_CHAT_ID = "-5140897831
 
 # Настройка логирования
 logging.basicConfig(
@@ -27,6 +32,172 @@ logger = logging.getLogger(__name__)
 # ==================== ПРИЛОЖЕНИЕ ====================
 app = FastAPI(title="Power of Attorney Tracker")
 
+# ==================== TELEGRAM ФУНКЦИИ ====================
+async def send_telegram_notification(chat_id: str, message: str):
+    """Отправка сообщения в Telegram"""
+    if not TELEGRAM_BOT_TOKEN:
+        logger.warning("Telegram bot token не настроен, уведомления не отправляются")
+        return False
+    
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "HTML"
+        }
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url, json=payload)
+            
+        if response.status_code == 200:
+            logger.info(f"Уведомление отправлено в Telegram (chat_id: {chat_id})")
+            return True
+        else:
+            logger.error(f"Ошибка отправки в Telegram: {response.status_code}, {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Ошибка отправки Telegram уведомления: {e}")
+        return False
+
+async def check_expiring_powers():
+    """Проверка истекающих доверенностей"""
+    logger.info("Запущена проверка истекающих доверенностей...")
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Получаем все активные доверенности
+        cursor.execute('''
+            SELECT 
+                id,
+                full_name,
+                poa_type,
+                start_date,
+                end_date,
+                telegram_chat_id,
+                notification_sent,
+                (end_date - CURRENT_DATE) as days_remaining
+            FROM powers_of_attorney 
+            WHERE end_date >= CURRENT_DATE
+            ORDER BY end_date ASC
+        ''')
+        
+        powers = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        if not powers:
+            logger.info("Нет активных доверенностей для проверки")
+            return
+        
+        today = date.today()
+        notifications_sent = 0
+        
+        for power in powers:
+            power_dict = dict(power)
+            end_date = power_dict['end_date']
+            
+            if isinstance(end_date, str):
+                end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+            elif isinstance(end_date, datetime):
+                end_date = end_date.date()
+            
+            days_left = (end_date - today).days
+            
+            # Проверяем, нужно ли отправить уведомление
+            if days_left in NOTIFICATION_DAYS and not power_dict.get('notification_sent'):
+                # Формируем сообщение
+                message = f"""
+<b> НАПОМИНАНИЕ: Истекает доверенность</b>
+
+<b> ФИО:</b> {power_dict['full_name']}
+<b> Тип:</b> {power_dict['poa_type']}
+<b> Дата окончания:</b> {end_date.strftime('%d.%m.%Y')}
+<b> Осталось дней:</b> {days_left}
+
+<i>Доверенность скоро истечет!</i>
+"""
+                
+                # Отправляем уведомление
+                chat_id = power_dict.get('telegram_chat_id', TELEGRAM_CHAT_ID)
+                if await send_telegram_notification(chat_id, message):
+                    # Помечаем как отправленное
+                    try:
+                        conn = get_db_connection()
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "UPDATE powers_of_attorney SET notification_sent = TRUE WHERE id = %s",
+                            (power_dict['id'],)
+                        )
+                        conn.commit()
+                        cursor.close()
+                        conn.close()
+                        notifications_sent += 1
+                        logger.info(f"Уведомление отправлено для доверенности ID {power_dict['id']}")
+                    except Exception as e:
+                        logger.error(f"Ошибка обновления статуса уведомления: {e}")
+        
+        logger.info(f"Проверка завершена. Отправлено уведомлений: {notifications_sent}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка проверки доверенностей: {e}")
+
+async def send_test_notification():
+    """Отправка тестового уведомления"""
+    test_message = """
+<b> ТЕСТОВОЕ УВЕДОМЛЕНИЕ</b>
+
+<b> Статус:</b> Система работает нормально
+<b> База данных:</b> Активна
+<b> Время:</b> {time}
+<b> Сообщение:</b> Тестовое уведомление отправлено успешно!
+
+<i>Это автоматическое тестовое сообщение для проверки работы бота.</i>
+""".format(time=datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
+    
+    if await send_telegram_notification(TELEGRAM_CHAT_ID, test_message):
+        logger.info("Тестовое уведомление отправлено")
+        return True
+    else:
+        logger.error("Не удалось отправить тестовое уведомление")
+        return False
+# ==================== ПЛАНИРОВЩИК ====================
+scheduler = AsyncIOScheduler()
+
+async def start_scheduler():
+    """Запуск планировщика уведомлений"""
+    try:
+        # Проверка каждое утро в 9:00
+        scheduler.add_job(
+            check_expiring_powers,
+            CronTrigger(hour=9, minute=0),
+            id='check_expiring_powers',
+            name='Проверка истекающих доверенностей',
+            replace_existing=True
+        )
+        
+        # Тестовое уведомление при старте (если настроен бот)
+        if TELEGRAM_BOT_TOKEN:
+            scheduler.add_job(
+                send_test_notification,
+                'date',
+                run_date=datetime.now() + timedelta(seconds=10),
+                id='send_test_notification'
+            )
+        
+        scheduler.start()
+        logger.info("Планировщик уведомлений запущен")
+        
+    except Exception as e:
+        logger.error(f"Ошибка запуска планировщика: {e}")
+
+async def stop_scheduler():
+    """Остановка планировщика"""
+    scheduler.shutdown()
+    logger.info("Планировщик уведомлений остановлен")
 # ==================== БАЗА ДАННЫХ ====================
 def get_db_connection():
     """Получение соединения с PostgreSQL"""
