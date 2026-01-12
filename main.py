@@ -1020,6 +1020,35 @@ async def simple_test():
         "chat_id": TELEGRAM_CHAT_ID,
         "timestamp": datetime.now().isoformat()
     }
+
+@app.get("/api/check-expiring")
+async def manual_check_expiring():
+    """Ручная проверка истекающих доверенностей"""
+    await check_expiring_powers()
+    
+    return {
+        "status": "success",
+        "message": "Проверка истекающих доверенностей выполнена",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/api/scheduler-status")
+async def get_scheduler_status():
+    """Статус планировщика"""
+    jobs = []
+    for job in scheduler.get_jobs():
+        jobs.append({
+            "id": job.id,
+            "name": job.name,
+            "next_run_time": str(job.next_run_time) if job.next_run_time else None,
+            "trigger": str(job.trigger)
+        })
+    
+    return {
+        "status": "running" if scheduler.running else "stopped",
+        "jobs": jobs,
+        "total_jobs": len(jobs)
+    }
 # ==================== ЗАПУСК СЕРВЕРА ====================
 if __name__ == "__main__":
     # Получаем порт из переменной окружения Railway
