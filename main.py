@@ -876,26 +876,7 @@ async def web_interface():
                 document.getElementById('expiringCount').textContent = expiring;
             }
             
-            // Загрузить статус системы
-            async function loadStatus() {
-                try {
-                    const response = await fetch('/api/health');
-                    const status = await response.json();
-                    
-                    const botStatus = status.telegram_bot === 'configured' 
-                        ? '<span style="color: #28a745;"> Настроен</span>'
-                        : '<span style="color: #dc3545;"> Не настроен</span>';
-                    
-                    document.getElementById('status').innerHTML = 
-                        '<p><strong>Статус:</strong> <span style="color: #28a745;">● ' + status.status + '</span></p>' +
-                        '<p><strong>База данных:</strong> ' + status.database + ' (' + status.database_type + ')</p>' +
-                        '<p><strong>Telegram бот:</strong> ' + botStatus + '</p>' +
-                        '<p><strong>Порт:</strong> ' + status.port + '</p>' +
-                        '<p><strong>Время:</strong> ' + new Date(status.timestamp).toLocaleString() + '</p>';
-                } catch (error) {
-                    document.getElementById('status').innerHTML = '<p> Ошибка проверки статуса</p>';
-                }
-            }
+    
             
             // Удалить доверенность
             async function deletePower(id) {
