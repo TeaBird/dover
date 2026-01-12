@@ -671,7 +671,7 @@ async def web_interface():
                             '<tr>' +
                                 '<td>' +
                                     '<strong>' + power.full_name + '</strong>' +
-                                    '<br><small style="color: #28a745;"> Уведомления Telegram</small>' +
+                                    
                                 '</td>' +
                                 '<td><span class="badge badge-info">' + power.poa_type + '</span></td>' +
                                 '<td>' + power.start_date + '</td>' +
