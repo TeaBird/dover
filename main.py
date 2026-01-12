@@ -517,7 +517,7 @@ async def web_interface():
     </head>
     <body>
         <div class="header">
-            <h1> Трекер доверенностей (PostgreSQL)</h1>
+            <h1> Трекер доверенностей </h1>
         </div>
         
         <div class="container">
