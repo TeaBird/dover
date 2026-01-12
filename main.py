@@ -160,13 +160,23 @@ async def send_test_notification():
 # ==================== ПЛАНИРОВЩИК ====================
 scheduler = AsyncIOScheduler()
 
+
+import atexit
+
+# Запускаем планировщик сразу
+scheduler.start()
+logger.info(" Планировщик запущен при импорте")
+
+# Регистрируем остановку при выходе
+atexit.register(lambda: scheduler.shutdown())
+
 async def start_scheduler():
     """Запуск планировщика уведомлений"""
     try:
         # Проверка каждое утро в 9:00
         scheduler.add_job(
             check_expiring_powers,
-            CronTrigger(hour=13, minute=56),
+            CronTrigger(hour=13, minute=58),
             id='check_expiring_powers',
             name='Проверка истекающих доверенностей',
             replace_existing=True
@@ -181,11 +191,10 @@ async def start_scheduler():
                 id='send_test_notification'
             )
         
-        scheduler.start()
-        logger.info("Планировщик уведомлений запущен")
+        logger.info(" Задачи планировщика добавлены")
         
     except Exception as e:
-        logger.error(f"Ошибка запуска планировщика: {e}")
+        logger.error(f" Ошибка запуска планировщика: {e}")
 
 async def stop_scheduler():
     """Остановка планировщика"""
