@@ -1,21 +1,21 @@
 import os
-import sqlite3
 import logging
 from datetime import datetime, date, timedelta
 from typing import List, Optional
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
 import asyncio
-from telegram import Bot
-from telegram.error import TelegramError
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 import uvicorn
 
+# Импорты для PostgreSQL
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
 # ==================== НАСТРОЙКИ ====================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-DATABASE_FILE = "poa.db"
+DATABASE_URL = os.getenv("DATABASE_URL")  # Railway автоматически добавляет эту переменную
 
 # Настройка логирования
 logging.basicConfig(
@@ -28,27 +28,43 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Power of Attorney Tracker")
 
 # ==================== БАЗА ДАННЫХ ====================
+def get_db_connection():
+    """Получение соединения с PostgreSQL"""
+    if not DATABASE_URL:
+        raise Exception("DATABASE_URL не установлен. Проверьте настройки Railway.")
+    
+    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+    return conn
+
 def init_database():
-    """Инициализация базы данных"""
-    conn = sqlite3.connect(DATABASE_FILE)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS powers_of_attorney (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            full_name TEXT NOT NULL,
-            poa_type TEXT NOT NULL,
-            start_date DATE NOT NULL,
-            end_date DATE NOT NULL,
-            telegram_chat_id TEXT,
-            notification_sent BOOLEAN DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-    logger.info("База данных инициализирована")
+    """Инициализация базы данных PostgreSQL"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Создаем таблицу если её нет
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS powers_of_attorney (
+                id SERIAL PRIMARY KEY,
+                full_name TEXT NOT NULL,
+                poa_type TEXT NOT NULL,
+                start_date DATE NOT NULL,
+                end_date DATE NOT NULL,
+                telegram_chat_id TEXT DEFAULT '-5140897831',
+                notification_sent BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        logger.info("База данных PostgreSQL инициализирована")
+        
+    except Exception as e:
+        logger.error(f"Ошибка инициализации БД: {e}")
+        raise
 
 # Инициализируем БД при старте
 init_database()
@@ -61,6 +77,7 @@ async def root():
         "service": "Power of Attorney Tracker",
         "status": "running",
         "version": "1.0.0",
+        "database": "PostgreSQL",
         "docs": "/docs",
         "ui": "/ui"
     }
@@ -69,9 +86,10 @@ async def root():
 async def health_check():
     """Проверка здоровья"""
     try:
-        conn = sqlite3.connect(DATABASE_FILE)
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT 1")
+        cursor.close()
         conn.close()
         db_status = "healthy"
     except Exception as e:
@@ -81,16 +99,56 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "database": db_status,
+        "database_type": "PostgreSQL",
         "telegram_bot": "configured" if TELEGRAM_BOT_TOKEN else "not_configured",
         "port": os.getenv("PORT", "8000")
     }
+
+@app.get("/api/db-info")
+async def db_info():
+    """Информация о базе данных"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Информация о таблице
+        cursor.execute("SELECT COUNT(*) as count FROM powers_of_attorney")
+        count_result = cursor.fetchone()
+        total_records = count_result['count'] if count_result else 0
+        
+        # Информация о базе
+        cursor.execute("SELECT current_database() as db_name, current_user as user")
+        db_info = cursor.fetchone()
+        
+        # Размер таблицы
+        cursor.execute("SELECT pg_size_pretty(pg_total_relation_size('powers_of_attorney')) as table_size")
+        size_info = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        return {
+            "status": "success",
+            "database": "PostgreSQL",
+            "total_records": total_records,
+            "database_name": db_info['db_name'] if db_info else "unknown",
+            "current_user": db_info['user'] if db_info else "unknown",
+            "table_size": size_info['table_size'] if size_info else "unknown",
+            "connection_url": DATABASE_URL[:50] + "..." if DATABASE_URL else "not_set"
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "database_url_set": bool(DATABASE_URL)
+        }
 
 @app.post("/api/powers/")
 async def create_power(
     full_name: str,
     poa_type: str,
-    end_date: str,
-      telegram_chat_id: Optional[str] = "-5140897831"
+    end_date: str
 ):
     """Создать новую доверенность"""
     try:
@@ -98,77 +156,120 @@ async def create_power(
     except ValueError:
         raise HTTPException(status_code=400, detail="Неправильный формат даты. Используйте YYYY-MM-DD")
     
-    conn = sqlite3.connect(DATABASE_FILE)
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        INSERT INTO powers_of_attorney 
-        (full_name, poa_type, start_date, end_date, telegram_chat_id)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (
-        full_name,
-        poa_type,
-        date.today().isoformat(),
-        end_date_obj.isoformat(),
-        "-5140897831"
-    ))
-    
-    power_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
-    
-    logger.info(f"Созданаа доверенность ID {power_id} для {full_name}")
-    
-    return {
-        "id": power_id,
-        "message": "Доверенность создана",
-        "full_name": full_name,
-        "end_date": end_date,
-        "telegram_chat_id": telegram_chat_id
-    }
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO powers_of_attorney 
+            (full_name, poa_type, start_date, end_date)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            full_name,
+            poa_type,
+            date.today().isoformat(),
+            end_date_obj.isoformat()
+        ))
+        
+        power_id = cursor.fetchone()[0]
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        logger.info(f"Создана доверенность ID {power_id} для {full_name}")
+        
+        return {
+            "id": power_id,
+            "message": "Доверенность создана",
+            "full_name": full_name,
+            "end_date": end_date,
+            "database": "PostgreSQL"
+        }
+        
+    except Exception as e:
+        logger.error(f"Ошибка создания доверенности: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
 
 @app.get("/api/powers/")
 async def get_powers():
     """Получить все доверенности"""
-    conn = sqlite3.connect(DATABASE_FILE)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        SELECT *, 
-               julianday(end_date) - julianday('now') as days_remaining
-        FROM powers_of_attorney 
-        ORDER BY end_date ASC
-    ''')
-    
-    powers = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    
-    return powers
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cursor.execute('''
+            SELECT *, 
+                   (end_date - CURRENT_DATE) as days_remaining
+            FROM powers_of_attorney 
+            ORDER BY end_date ASC
+        ''')
+        
+        powers = cursor.fetchall()
+        
+        # Конвертируем в список словарей
+        result = []
+        for power in powers:
+            power_dict = dict(power)
+            # Преобразуем типы
+            if power_dict.get('start_date'):
+                power_dict['start_date'] = power_dict['start_date'].isoformat()
+            if power_dict.get('end_date'):
+                power_dict['end_date'] = power_dict['end_date'].isoformat()
+            if power_dict.get('created_at'):
+                power_dict['created_at'] = power_dict['created_at'].isoformat()
+            
+            # Преобразуем days_remaining в int
+            if power_dict.get('days_remaining'):
+                power_dict['days_remaining'] = power_dict['days_remaining'].days
+            
+            result.append(power_dict)
+        
+        cursor.close()
+        conn.close()
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Ошибка получения доверенностей: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
 
 @app.delete("/api/powers/{power_id}")
 async def delete_power(power_id: int):
     """Удалить доверенность"""
-    conn = sqlite3.connect(DATABASE_FILE)
-    cursor = conn.cursor()
-    
-    cursor.execute('DELETE FROM powers_of_attorney WHERE id = ?', (power_id,))
-    deleted = cursor.rowcount > 0
-    
-    conn.commit()
-    conn.close()
-    
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Доверенность не найдена")
-    
-    logger.info(f"Удалена доверенность ID {power_id}")
-    
-    return {
-        "message": "Доверенность удалена",
-        "id": power_id
-    }
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM powers_of_attorney WHERE id = %s', (power_id,))
+        deleted = cursor.rowcount > 0
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Доверенность не найдена")
+        
+        logger.info(f"Удалена доверенность ID {power_id}")
+        
+        return {
+            "message": "Доверенность удалена",
+            "id": power_id,
+            "database": "PostgreSQL"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка удаления доверенности: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка базы данных: {str(e)}")
 
 # ==================== HTML ИНТЕРФЕЙС ====================
+# (Оставьте HTML интерфейс без изменений из вашего предыдущего кода)
+# ВАЖНО: Уберите лишний JavaScript код для telegram_chat_id
+
 @app.get("/ui", response_class=HTMLResponse)
 async def web_interface():
     """Веб-интерфейс"""
@@ -331,14 +432,15 @@ async def web_interface():
     </head>
     <body>
         <div class="header">
-            <h1> Трекер доверенностей</h1>
+            <h1>📋 Трекер доверенностей (PostgreSQL)</h1>
+            <p>Отслеживание сроков доверенностей с уведомлениями в Telegram</p>
         </div>
         
         <div class="container">
             <!-- Левая колонка: Форма -->
             <div>
                 <div class="card">
-                    <h2 style="margin-top: 0;">Добавить доверенность</h2>
+                    <h2 style="margin-top: 0;">➕ Добавить доверенность</h2>
                     <div id="alert" class="alert"></div>
                     
                     <form id="addForm">
@@ -362,13 +464,13 @@ async def web_interface():
                             <input type="date" id="end_date" required>
                         </div>
                         
-                        <button type="submit" class="btn"> Сохранить доверенность</button>
+                        <button type="submit" class="btn">✅ Сохранить доверенность</button>
                     </form>
                 </div>
                 
                 <!-- Статистика -->
                 <div class="card">
-                    <h3> Статистика</h3>
+                    <h3>📊 Статистика</h3>
                     <div class="stats" id="stats">
                         <div class="stat-card">
                             <div class="stat-value" id="totalCount">0</div>
@@ -384,14 +486,25 @@ async def web_interface():
                         </div>
                     </div>
                 </div>
+                
+                <!-- Информация о БД -->
+                <div class="card">
+                    <h3>🗄️ База данных</h3>
+                    <p>Используется: <strong>PostgreSQL</strong></p>
+                    <p>Данные сохраняются навсегда</p>
+                    <button onclick="checkDbStatus()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-top: 10px;">
+                        🔍 Проверить статус БД
+                    </button>
+                </div>
+            </div>
             
             <!-- Правая колонка: Список -->
             <div>
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h2 style="margin: 0;"> Список доверенностей</h2>
+                        <h2 style="margin: 0;">📋 Список доверенностей</h2>
                         <button onclick="loadPowers()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;">
-                             Обновить
+                            🔄 Обновить
                         </button>
                     </div>
                     
@@ -402,7 +515,7 @@ async def web_interface():
                 
                 <!-- Статус системы -->
                 <div class="card">
-                    <h3> Статус системы</h3>
+                    <h3>⚙️ Статус системы</h3>
                     <div id="status">
                         <p>Проверка статуса...</p>
                     </div>
@@ -423,6 +536,18 @@ async def web_interface():
                 setTimeout(() => {
                     alert.style.display = 'none';
                 }, 5000);
+            }
+            
+            // Проверить статус БД
+            async function checkDbStatus() {
+                try {
+                    const response = await fetch('/api/db-info');
+                    const info = await response.json();
+                    
+                    alert(`Статус БД: ${info.status}\\nЗаписей в БД: ${info.total_records}\\nРазмер таблицы: ${info.table_size}`);
+                } catch (error) {
+                    alert('Ошибка проверки БД');
+                }
             }
             
             // Загрузить доверенности
@@ -462,14 +587,14 @@ async def web_interface():
                             <tr>
                                 <td>
                                     <strong>\${power.full_name}</strong>
-                                    \${power.telegram_chat_id ? '<br><small style="color: #28a745;"> Уведомления</small>' : ''}
+                                    <br><small style="color: #28a745;">🔔 Уведомления Telegram</small>
                                 </td>
                                 <td><span class="badge badge-info">\${power.poa_type}</span></td>
                                 <td>\${power.start_date}</td>
                                 <td>\${power.end_date}</td>
                                 <td><span class="\${badgeClass}">\${badgeText}</span></td>
                                 <td>
-                                    <button onclick="deletePower(\${power.id})" class="delete-btn"> Удалить</button>
+                                    <button onclick="deletePower(\${power.id})" class="delete-btn">🗑️ Удалить</button>
                                 </td>
                             </tr>
                         \`;
@@ -481,7 +606,7 @@ async def web_interface():
                     updateStats();
                     
                 } catch (error) {
-                    document.getElementById('powersList').innerHTML = '<p> Ошибка загрузки данных</p>';
+                    document.getElementById('powersList').innerHTML = '<p>❌ Ошибка загрузки данных</p>';
                     console.error('Error:', error);
                 }
             }
@@ -514,18 +639,18 @@ async def web_interface():
                     const status = await response.json();
                     
                     const botStatus = status.telegram_bot === 'configured' 
-                        ? '<span style="color: #28a745;"> Настроен</span>'
-                        : '<span style="color: #dc3545;"> Не настроен</span>';
+                        ? '<span style="color: #28a745;">✅ Настроен</span>'
+                        : '<span style="color: #dc3545;">❌ Не настроен</span>';
                     
                     document.getElementById('status').innerHTML = \`
                         <p><strong>Статус:</strong> <span style="color: #28a745;">● \${status.status}</span></p>
-                        <p><strong>База данных:</strong> \${status.database}</p>
+                        <p><strong>База данных:</strong> \${status.database} (\${status.database_type})</p>
                         <p><strong>Telegram бот:</strong> \${botStatus}</p>
                         <p><strong>Порт:</strong> \${status.port}</p>
                         <p><strong>Время:</strong> \${new Date(status.timestamp).toLocaleString()}</p>
                     \`;
                 } catch (error) {
-                    document.getElementById('status').innerHTML = '<p> Ошибка проверки статуса</p>';
+                    document.getElementById('status').innerHTML = '<p>❌ Ошибка проверки статуса</p>';
                 }
             }
             
@@ -539,13 +664,13 @@ async def web_interface():
                     });
                     
                     if (response.ok) {
-                        showAlert(' Доверенность удалена!');
+                        showAlert('✅ Доверенность удалена!');
                         loadPowers();
                     } else {
-                        showAlert(' Ошибка при удалении', 'error');
+                        showAlert('❌ Ошибка при удалении', 'error');
                     }
                 } catch (error) {
-                    showAlert(' Ошибка сети', 'error');
+                    showAlert('❌ Ошибка сети', 'error');
                 }
             }
             
@@ -556,13 +681,12 @@ async def web_interface():
                 const formData = {
                     full_name: document.getElementById('full_name').value,
                     poa_type: document.getElementById('poa_type').value,
-                    end_date: document.getElementById('end_date').value,
-                    telegram_chat_id: document.getElementById('telegram_chat_id').value || null
+                    end_date: document.getElementById('end_date').value
                 };
                 
                 // Валидация
                 if (!formData.full_name || !formData.poa_type || !formData.end_date) {
-                    showAlert(' Заполните все обязательные поля', 'error');
+                    showAlert('❌ Заполните все обязательные поля', 'error');
                     return;
                 }
                 
@@ -572,9 +696,6 @@ async def web_interface():
                     params.append('full_name', formData.full_name);
                     params.append('poa_type', formData.poa_type);
                     params.append('end_date', formData.end_date);
-                    if (formData.telegram_chat_id) {
-                        params.append('telegram_chat_id', formData.telegram_chat_id);
-                    }
                     
                     const response = await fetch(\`/api/powers/?\${params.toString()}\`, {
                         method: 'POST'
@@ -582,15 +703,15 @@ async def web_interface():
                     
                     if (response.ok) {
                         const result = await response.json();
-                        showAlert(\` Доверенность "\${formData.full_name}" добавлена!\`);
+                        showAlert(\`✅ Доверенность "\${formData.full_name}" добавлена! (ID: \${result.id})\`);
                         document.getElementById('addForm').reset();
                         loadPowers();
                     } else {
                         const error = await response.json();
-                        showAlert(\` Ошибка: \${error.detail || 'Неизвестная ошибка'}\`, 'error');
+                        showAlert(\`❌ Ошибка: \${error.detail || 'Неизвестная ошибка'}\`, 'error');
                     }
                 } catch (error) {
-                    showAlert(' Ошибка сети', 'error');
+                    showAlert('❌ Ошибка сети', 'error');
                 }
             });
             
@@ -621,22 +742,23 @@ if __name__ == "__main__":
     HOST = "0.0.0.0"
     
     print("=" * 60)
-    print(" Power of Attorney Tracker")
+    print("🚀 Power of Attorney Tracker with PostgreSQL")
     print("=" * 60)
     print(f"Сервер запущен на: {HOST}:{PORT}")
-    print(f"База данных: {DATABASE_FILE}")
-    print(f"Telegram бот: {' Настроен' if TELEGRAM_BOT_TOKEN else ' Не настроен'}")
+    print(f"База данных: {'PostgreSQL (Railway)' if DATABASE_URL else 'Не настроена'}")
+    print(f"Telegram бот: {'✅ Настроен' if TELEGRAM_BOT_TOKEN else '❌ Не настроен'}")
     print("=" * 60)
     print("Доступные эндпоинты:")
     print(f"  • Веб-интерфейс: http://localhost:{PORT}/ui")
     print(f"  • API документация: http://localhost:{PORT}/docs")
     print(f"  • Проверка здоровья: http://localhost:{PORT}/api/health")
+    print(f"  • Информация о БД: http://localhost:{PORT}/api/db-info")
     print(f"  • Список доверенностей: http://localhost:{PORT}/api/powers/")
     print("=" * 60)
     
     # Запускаем сервер
     uvicorn.run(
-        app,  # Используем объект app из этого файла
+        app,
         host=HOST,
         port=PORT,
         reload=False
