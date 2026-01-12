@@ -385,7 +385,12 @@ async def web_interface():
             .header h1 { margin: 0; font-size: 2.5em; }
             .header p { margin: 10px 0 0; opacity: 0.9; }
             
-            .container { display: grid; grid-template-columns: 1fr 2fr; gap: 30px; }
+            .container { 
+                display: grid; 
+                grid-template-columns: 1fr 2fr; 
+                gap: 30px; 
+                align-items: start;
+            }
             @media (max-width: 768px) {
                 .container { grid-template-columns: 1fr; }
             }
@@ -513,6 +518,19 @@ async def web_interface():
             }
             .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
             .alert-error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+            
+            /* Новые стили для боковых панелей */
+            .left-panel {
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+            
+            .right-panel {
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
         </style>
     </head>
     <body>
@@ -521,8 +539,8 @@ async def web_interface():
         </div>
         
         <div class="container">
-            <!-- Левая колонка: Форма -->
-            <div>
+            <!-- Левая колонка: Форма и статистика -->
+            <div class="left-panel">
                 <div class="card">
                     <h2 style="margin-top: 0;"> Добавить доверенность</h2>
                     <div id="alert" class="alert"></div>
@@ -570,10 +588,10 @@ async def web_interface():
                         </div>
                     </div>
                 </div>
-                
+            </div>
             
-            <!-- Правая колонка: Список -->
-            <div>
+            <!-- Правая колонка: Список и статус системы -->
+            <div class="right-panel">
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h2 style="margin: 0;"> Список доверенностей</h2>
@@ -610,18 +628,6 @@ async def web_interface():
                 setTimeout(() => {
                     alert.style.display = 'none';
                 }, 5000);
-            }
-            
-            // Проверить статус БД
-            async function checkDbStatus() {
-                try {
-                    const response = await fetch('/api/db-info');
-                    const info = await response.json();
-                    
-                    alert('Статус БД: ' + info.status + '\\nЗаписей в БД: ' + info.total_records + '\\nРазмер таблицы: ' + info.table_size);
-                } catch (error) {
-                    alert('Ошибка проверки БД');
-                }
             }
             
             // Загрузить доверенности
@@ -661,7 +667,6 @@ async def web_interface():
                             '<tr>' +
                                 '<td>' +
                                     '<strong>' + power.full_name + '</strong>' +
-                                    
                                 '</td>' +
                                 '<td><span class="badge badge-info">' + power.poa_type + '</span></td>' +
                                 '<td>' + power.start_date + '</td>' +
