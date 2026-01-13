@@ -172,10 +172,10 @@ atexit.register(lambda: scheduler.shutdown())
 async def start_scheduler():
     """Запуск планировщика уведомлений"""
     try:
-        # Проверка каждое утро в 9:00
+       
         scheduler.add_job(
             check_expiring_powers,
-            CronTrigger(hour=11, minute=59),
+            CronTrigger(hour=7, minute=00),
             id='check_expiring_powers',
             name='Проверка истекающих доверенностей',
             replace_existing=True
