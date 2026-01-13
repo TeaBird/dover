@@ -175,7 +175,7 @@ async def start_scheduler():
        
         scheduler.add_job(
             check_expiring_powers,
-            CronTrigger(hour=10, minute=15),
+            CronTrigger(hour=7, minute=15),
             id='check_expiring_powers',
             name='Проверка истекающих доверенностей',
             replace_existing=True
