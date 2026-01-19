@@ -13,7 +13,7 @@ import uvicorn
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-# ==================== НАСТРОЙКИ ====================
+# настройки
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 DATABASE_URL = os.getenv("DATABASE_URL")
 NOTIFICATION_DAYS = [7, 3, 1]
@@ -26,10 +26,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ==================== ПРИЛОЖЕНИЕ ====================
+# Приложение
 app = FastAPI(title="Power of Attorney Tracker")
 
-# ==================== TELEGRAM ФУНКЦИИ ====================
+# tg
 async def send_telegram_notification(chat_id: str, message: str):
     """Отправка сообщения в Telegram"""
     if not TELEGRAM_BOT_TOKEN:
@@ -59,7 +59,7 @@ async def send_telegram_notification(chat_id: str, message: str):
         return False
 
 async def check_expiring_powers():
-    """Проверка истекающих доверенностей"""
+    
     logger.info("Запущена проверка истекающих доверенностей...")
     
     try:
@@ -141,7 +141,7 @@ async def check_expiring_powers():
         logger.error(f"Ошибка проверки доверенностей: {e}")
 
 async def send_test_notification():
-    """Отправка тестового уведомления"""
+    
     test_message = """
 <b> ТЕСТОВОЕ УВЕДОМЛЕНИЕ</b>
 
@@ -157,7 +157,7 @@ async def send_test_notification():
     else:
         logger.error("Не удалось отправить тестовое уведомление")
         return False
-# ==================== ПЛАНИРОВЩИК ====================
+# шедулер
 scheduler = AsyncIOScheduler()
 
 import atexit
@@ -181,7 +181,7 @@ async def start_scheduler():
             replace_existing=True
         )
         
-        # Тестовое уведомление при старте (если настроен бот)
+        # Тестовое уведомление при старте
         if TELEGRAM_BOT_TOKEN:
             scheduler.add_job(
                 send_test_notification,
@@ -199,7 +199,7 @@ async def stop_scheduler():
     """Остановка планировщика"""
     scheduler.shutdown()
     logger.info("Планировщик уведомлений остановлен")
-# ==================== БАЗА ДАННЫХ ====================
+# бд
 def get_db_connection():
     """Получение соединения с PostgreSQL"""
     if not DATABASE_URL:
@@ -266,14 +266,10 @@ def init_database():
         
     except Exception as e:
         logger.error(f"Ошибка инициализации БД: {e}")
-        # Не падаем, просто логируем ошибку
+        # не падаем, просто логируем ошибку
 
-# Инициализируем БД при старте
+# инициализируем БД при старте
 init_database()
-
-# ==================== HTML ИНТЕРФЕЙС ====================
-# (Оставьте HTML интерфейс без изменений из вашего предыдущего кода)
-# ВАЖНО: Уберите лишний JavaScript код для telegram_chat_id
 
 @app.get("/ui", response_class=HTMLResponse)
 async def web_interface():
@@ -704,8 +700,7 @@ async def web_interface():
     """
     return HTMLResponse(content=html_content)
     
-# ==================== API ====================
-
+# апи
 
 @app.get("/")
 async def root():
@@ -747,17 +742,14 @@ async def db_info():
     try:
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Информация о таблице
+
         cursor.execute("SELECT COUNT(*) as count FROM powers_of_attorney")
         count_result = cursor.fetchone()
         total_records = count_result['count'] if count_result else 0
-        
-        # Информация о базе
+
         cursor.execute("SELECT current_database() as db_name, current_user as user")
         db_info = cursor.fetchone()
-        
-        # Размер таблицы
+
         cursor.execute("SELECT pg_size_pretty(pg_total_relation_size('powers_of_attorney')) as table_size")
         size_info = cursor.fetchone()
         
@@ -836,7 +828,7 @@ async def get_powers():
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Запрос с правильным вычислением days_remaining
+        
         cursor.execute('''
             SELECT 
                 id,
@@ -854,12 +846,12 @@ async def get_powers():
         
         powers = cursor.fetchall()
         
-        # Конвертируем результат
+        
         result = []
         for power in powers:
             power_dict = dict(power)
             
-            # Преобразуем даты в строки
+            # преобразуем даты в строки
             if power_dict.get('start_date'):
                 if isinstance(power_dict['start_date'], date):
                     power_dict['start_date'] = power_dict['start_date'].isoformat()
@@ -876,19 +868,16 @@ async def get_powers():
                 if isinstance(power_dict['created_at'], datetime):
                     power_dict['created_at'] = power_dict['created_at'].isoformat()
             
-            # Обрабатываем days_remaining
-            # В PostgreSQL (end_date - CURRENT_DATE) возвращает интервал
-            # Нужно извлечь количество дней
             if power_dict.get('days_remaining') is not None:
                 days_rem = power_dict['days_remaining']
                 if hasattr(days_rem, 'days'):
-                    # Это timedelta объект
+                    
                     power_dict['days_remaining'] = days_rem.days
                 elif isinstance(days_rem, int):
-                    # Уже число
+
                     power_dict['days_remaining'] = days_rem
                 else:
-                    # Другой тип, преобразуем
+
                     try:
                         power_dict['days_remaining'] = int(days_rem)
                     except:
@@ -909,7 +898,7 @@ async def get_powers():
         import traceback
         error_details = traceback.format_exc()
         
-        # Для отладки: что возвращает запрос
+        # что возвращает запрос
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -960,7 +949,6 @@ async def delete_power(power_id: int):
 
 @app.get("/api/test-notification")
 async def test_notification():
-    """Тестовое уведомление - УПРОЩЕННАЯ ВЕРСИЯ"""
     try:
         if not TELEGRAM_BOT_TOKEN:
             return JSONResponse(
@@ -972,7 +960,6 @@ async def test_notification():
                 }
             )
         
-        # Простой тест отправки
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
@@ -1060,13 +1047,11 @@ async def startup_event():
     """Запуск при старте приложения"""
     logger.info(" Запуск Power of Attorney Tracker...")
     
-    # Инициализация БД
     init_database()
-    
-    # Запуск планировщика
+
     await start_scheduler()
     
-    # Проверка настроек
+
     if not TELEGRAM_BOT_TOKEN:
         logger.warning(" TELEGRAM_BOT_TOKEN не настроен. Уведомления не будут отправляться.")
     else:
@@ -1085,9 +1070,9 @@ async def shutdown_event():
     logger.info(" Остановка Power of Attorney Tracker...")
     await stop_scheduler()
     logger.info(" Планировщик остановлен, приложение завершено")
-# ==================== ЗАПУСК СЕРВЕРА ====================
+# сервер
 if __name__ == "__main__":
-    # Получаем порт из переменной окружения Railway
+    # порт из Railway
     PORT = int(os.getenv("PORT", 8000))
     HOST = "0.0.0.0"
     
@@ -1106,7 +1091,7 @@ if __name__ == "__main__":
     print(f"  • Список доверенностей: http://localhost:{PORT}/api/powers/")
     print("=" * 60)
     
-    # Запускаем сервер
+    # старт сервер
     uvicorn.run(
         app,
         host=HOST,
