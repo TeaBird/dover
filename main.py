@@ -17,7 +17,7 @@ from psycopg2.extras import RealDictCursor
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 DATABASE_URL = os.getenv("DATABASE_URL")
 NOTIFICATION_DAYS = [7, 3, 1]
-TELEGRAM_CHAT_ID = "-5140897831"
+TELEGRAM_CHAT_ID = ""
 
 # Настройка логирования
 logging.basicConfig(
